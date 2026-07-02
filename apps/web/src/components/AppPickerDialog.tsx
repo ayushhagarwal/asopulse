@@ -83,7 +83,12 @@ export function AppPickerDialog({
                 type="button"
                 className="demo-app-result"
                 onClick={() => {
-                  onSelect({ appId: "demo-clarity", name: "Clarity — Daily Journal", developer: "ASOpulse Demo", iconUrl: "" });
+                  onSelect({
+                    appId: "demo-clarity",
+                    name: "Clarity — Daily Journal",
+                    developer: "ASOpulse Demo",
+                    iconUrl: "",
+                  });
                   onClose();
                 }}
               >
