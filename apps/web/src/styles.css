@@ -1004,6 +1004,33 @@ kbd {
   color: var(--ink-faint);
   font-size: 11px;
 }
+.add-keyword-row {
+  display: grid;
+  grid-template-columns: 22px 1fr auto;
+  align-items: center;
+  gap: 11px;
+  max-width: 700px;
+  border-bottom: 1px solid #aac8b4;
+  padding: 17px 0 13px;
+  overflow: hidden;
+}
+.add-keyword-row input {
+  border: 0;
+  outline: 0;
+  background: transparent;
+  font-size: 17px;
+}
+.add-keyword-row button:disabled {
+  opacity: 0.65;
+  cursor: wait;
+}
+.success-message {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--leaf);
+  font-size: 11px;
+}
 .watchlist-table {
   margin-top: 25px;
   min-width: 700px;

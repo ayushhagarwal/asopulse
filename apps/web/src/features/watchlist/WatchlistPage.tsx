@@ -1,7 +1,14 @@
 import { motion } from "motion/react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
-import { DownloadIcon, PlusIcon, SearchIcon } from "../../components/icons";
+import { CheckIcon, DownloadIcon, PlusIcon, SearchIcon } from "../../components/icons";
 import { keywordRows } from "../../data/fixtures";
+import { apiRequest } from "../../lib/api";
+
+type WatchlistItem = (typeof keywordRows)[number] & {
+  provenance?: { observedAt: string; confidence: string; methodVersion: string };
+};
+type WatchlistResponse = { data: WatchlistItem[] };
 
 function downloadCsv() {
   const header = "keyword,rank,competition,opportunity,movement,tags";
@@ -28,9 +35,32 @@ function downloadCsv() {
 export function WatchlistPage() {
   const [query, setQuery] = useState("");
   const [period, setPeriod] = useState("7D");
+  const [adding, setAdding] = useState(false);
+  const [newKeyword, setNewKeyword] = useState("");
+  const queryClient = useQueryClient();
+  const watchlist = useQuery({
+    queryKey: ["watchlist"],
+    queryFn: () => apiRequest<WatchlistResponse>("/projects/demo/watchlist"),
+    initialData: { data: keywordRows.filter((row) => row.tracked) },
+    staleTime: 60_000,
+  });
+  const addKeyword = useMutation({
+    mutationFn: (keyword: string) =>
+      apiRequest<{ data: WatchlistItem }>("/projects/demo/watchlist", {
+        method: "POST",
+        body: JSON.stringify({ keyword, country: "US", appId: "demo-clarity" }),
+      }),
+    onSuccess: ({ data }) => {
+      queryClient.setQueryData<WatchlistResponse>(["watchlist"], (current) => ({
+        data: [...(current?.data ?? []), data],
+      }));
+      setNewKeyword("");
+      setAdding(false);
+    },
+  });
   const rows = useMemo(
-    () => keywordRows.filter((row) => row.tracked && row.keyword.includes(query.toLowerCase())),
-    [query],
+    () => watchlist.data.data.filter((row) => row.keyword.includes(query.toLowerCase())),
+    [query, watchlist.data.data],
   );
   return (
     <motion.div className="page" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}>
@@ -43,11 +73,43 @@ export function WatchlistPage() {
           <button className="secondary-button" onClick={downloadCsv}>
             <DownloadIcon size={16} /> Export CSV
           </button>
-          <button className="primary-button">
+          <button className="primary-button" onClick={() => setAdding((value) => !value)}>
             <PlusIcon size={16} /> Add keywords
           </button>
         </div>
       </div>
+      {adding ? (
+        <motion.form
+          className="add-keyword-row"
+          initial={{ opacity: 0, height: 0 }}
+          animate={{ opacity: 1, height: "auto" }}
+          onSubmit={(event) => {
+            event.preventDefault();
+            if (newKeyword.trim().length >= 2) addKeyword.mutate(newKeyword.trim());
+          }}
+        >
+          <SearchIcon size={18} />
+          <input
+            value={newKeyword}
+            onChange={(event) => setNewKeyword(event.target.value)}
+            placeholder="Keyword to observe"
+            autoFocus
+          />
+          <button className="primary-button" type="submit" disabled={addKeyword.isPending}>
+            {addKeyword.isPending ? "Observing…" : "Add to watchlist"}
+          </button>
+        </motion.form>
+      ) : null}
+      {addKeyword.isSuccess ? (
+        <p className="success-message">
+          <CheckIcon size={15} /> Keyword added with a fresh App Store observation.
+        </p>
+      ) : null}
+      {addKeyword.isError ? (
+        <p className="inline-error">
+          The keyword could not be observed. Check that the API and worker services are running.
+        </p>
+      ) : null}
       <div className="watch-toolbar">
         <label>
           <SearchIcon size={17} />
