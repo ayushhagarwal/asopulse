@@ -3,9 +3,9 @@ import {
   deriveRankingSignal,
   findObservedRank,
   formatRank,
+  type StoreApp,
   scoreKeyword,
   toCsv,
-  type StoreApp,
 } from "./index";
 
 const app = (id: string, title: string, ratingCount: number): StoreApp => ({

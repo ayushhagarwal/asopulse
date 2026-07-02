@@ -1,12 +1,12 @@
 import { scoreKeyword, toCsv } from "@asopulse/domain";
 import { AppleSearchProvider, type AppStoreProvider } from "@asopulse/providers";
-import cors from "@fastify/cors";
 import cookie from "@fastify/cookie";
+import cors from "@fastify/cors";
 import swagger from "@fastify/swagger";
 import swaggerUi from "@fastify/swagger-ui";
 import Fastify from "fastify";
 import { registerAuth } from "./auth";
-import { demoProject, rankingSignals, trackKeyword, trackedKeywords } from "./store";
+import { demoProject, rankingSignals, trackedKeywords, trackKeyword } from "./store";
 
 export function buildApp(provider: AppStoreProvider = new AppleSearchProvider()) {
   const app = Fastify({ logger: process.env.NODE_ENV !== "test" });
