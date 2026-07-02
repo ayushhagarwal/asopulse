@@ -1,0 +1,128 @@
+import { Link, Outlet, useRouterState } from "@tanstack/react-router";
+import { AnimatePresence, motion } from "motion/react";
+import { useEffect, useState } from "react";
+import { CommandPalette } from "./CommandPalette";
+import { Logo } from "./Logo";
+import { PulseField } from "./PulseField";
+import {
+  BookmarkIcon,
+  ChevronDownIcon,
+  CommandIcon,
+  MenuIcon,
+  PulseIcon,
+  SearchIcon,
+  SettingsIcon,
+} from "./icons";
+
+const navigation = [
+  { to: "/pulse", label: "Pulse", icon: PulseIcon },
+  { to: "/discover", label: "Discover", icon: SearchIcon },
+  { to: "/watchlist", label: "Watchlist", icon: BookmarkIcon },
+] as const;
+
+export function AppShell() {
+  const [commandOpen, setCommandOpen] = useState(false);
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const pathname = useRouterState({ select: (state) => state.location.pathname });
+
+  useEffect(() => {
+    const handleKey = (event: KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
+        event.preventDefault();
+        setCommandOpen((value) => !value);
+      }
+      if (event.key === "Escape") {
+        setCommandOpen(false);
+        setMobileNavOpen(false);
+      }
+    };
+    window.addEventListener("keydown", handleKey);
+    return () => window.removeEventListener("keydown", handleKey);
+  }, []);
+
+  return (
+    <div className="app-shell">
+      <PulseField />
+      <button
+        className="mobile-menu icon-button"
+        aria-label="Open navigation"
+        onClick={() => setMobileNavOpen(true)}
+      >
+        <MenuIcon />
+      </button>
+      <AnimatePresence>
+        {mobileNavOpen ? (
+          <motion.button
+            className="mobile-nav-backdrop"
+            aria-label="Close navigation"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={() => setMobileNavOpen(false)}
+          />
+        ) : null}
+      </AnimatePresence>
+      <aside className={`sidebar ${mobileNavOpen ? "is-open" : ""}`}>
+        <Logo />
+        <nav aria-label="Primary navigation">
+          {navigation.map((item) => {
+            const selected = pathname === item.to;
+            return (
+              <Link
+                key={item.to}
+                to={item.to}
+                className={`nav-item ${selected ? "is-selected" : ""}`}
+                onClick={() => setMobileNavOpen(false)}
+              >
+                <item.icon size={21} />
+                <span>{item.label}</span>
+                {selected ? (
+                  <motion.i
+                    layoutId="active-nav"
+                    transition={{ type: "spring", stiffness: 420, damping: 38 }}
+                  />
+                ) : null}
+              </Link>
+            );
+          })}
+        </nav>
+        <Link
+          to="/settings"
+          className={`nav-item settings-link ${pathname === "/settings" ? "is-selected" : ""}`}
+          onClick={() => setMobileNavOpen(false)}
+        >
+          <SettingsIcon size={21} />
+          <span>Settings</span>
+          {pathname === "/settings" ? <motion.i layoutId="active-nav" /> : null}
+        </Link>
+      </aside>
+      <div className="workspace">
+        <header className="utility-bar">
+          <button className="app-selector">
+            <span className="app-icon">C</span>
+            <span>Clarity — Daily Journal</span>
+            <ChevronDownIcon size={16} />
+          </button>
+          <button className="store-selector">
+            <span>US · App Store</span>
+            <ChevronDownIcon size={16} />
+          </button>
+          <button className="command-trigger" onClick={() => setCommandOpen(true)}>
+            <SearchIcon size={18} />
+            <span>Search or type a command…</span>
+            <kbd>
+              <CommandIcon size={13} /> K
+            </kbd>
+          </button>
+          <button className="avatar" aria-label="Open account menu">
+            A
+          </button>
+        </header>
+        <main id="main-content" className="content">
+          <Outlet />
+        </main>
+      </div>
+      <CommandPalette open={commandOpen} onClose={() => setCommandOpen(false)} />
+    </div>
+  );
+}
