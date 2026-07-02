@@ -115,6 +115,14 @@ a {
   stroke-linecap: round;
   stroke-linejoin: round;
 }
+.sidebar-brand-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.sidebar-close {
+  display: none;
+}
 .logo-mark circle {
   fill: #b7e49e;
   stroke-width: 1.4;
@@ -1044,6 +1052,14 @@ kbd {
   }
   .sidebar.is-open {
     transform: translateX(0);
+  }
+  .sidebar-close {
+    display: grid;
+    width: 36px;
+    height: 36px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    color: var(--ink-soft);
   }
   .nav-item i {
     right: -21px;

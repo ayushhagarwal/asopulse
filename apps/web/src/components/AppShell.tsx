@@ -7,6 +7,7 @@ import { PulseField } from "./PulseField";
 import {
   BookmarkIcon,
   ChevronDownIcon,
+  CloseIcon,
   CommandIcon,
   MenuIcon,
   PulseIcon,
@@ -63,7 +64,16 @@ export function AppShell() {
         ) : null}
       </AnimatePresence>
       <aside className={`sidebar ${mobileNavOpen ? "is-open" : ""}`}>
-        <Logo />
+        <div className="sidebar-brand-row">
+          <Logo />
+          <button
+            className="sidebar-close icon-button"
+            aria-label="Close menu"
+            onClick={() => setMobileNavOpen(false)}
+          >
+            <CloseIcon size={18} />
+          </button>
+        </div>
         <nav aria-label="Primary navigation">
           {navigation.map((item) => {
             const selected = pathname === item.to;
