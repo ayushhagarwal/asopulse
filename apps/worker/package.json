@@ -1,0 +1,21 @@
+{
+  "name": "@asopulse/worker",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/worker.ts",
+    "start": "node dist/worker.js",
+    "build": "tsc -p tsconfig.json",
+    "lint": "biome check src",
+    "test": "vitest run --passWithNoTests",
+    "typecheck": "tsc -p tsconfig.json --noEmit --pretty false"
+  },
+  "dependencies": {
+    "bullmq": "^5.70.1"
+  },
+  "devDependencies": {
+    "tsx": "^4.21.0",
+    "vitest": "^4.1.9"
+  }
+}

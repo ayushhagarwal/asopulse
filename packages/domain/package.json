@@ -1,0 +1,16 @@
+{
+  "name": "@asopulse/domain",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": "./src/index.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "lint": "biome check src",
+    "test": "vitest run",
+    "typecheck": "tsc -p tsconfig.json --noEmit --pretty false"
+  },
+  "devDependencies": {
+    "vitest": "^4.1.9"
+  }
+}
