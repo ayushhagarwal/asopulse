@@ -1,5 +1,5 @@
-import { motion } from "motion/react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { motion } from "motion/react";
 import { useMemo, useState } from "react";
 import { CheckIcon, DownloadIcon, PlusIcon, SearchIcon } from "../../components/icons";
 import { keywordRows } from "../../data/fixtures";
@@ -70,10 +70,14 @@ export function WatchlistPage() {
           <p>A deliberate set of terms, observed daily.</p>
         </div>
         <div className="page-actions">
-          <button className="secondary-button" onClick={downloadCsv}>
+          <button type="button" className="secondary-button" onClick={downloadCsv}>
             <DownloadIcon size={16} /> Export CSV
           </button>
-          <button className="primary-button" onClick={() => setAdding((value) => !value)}>
+          <button
+            type="button"
+            className="primary-button"
+            onClick={() => setAdding((value) => !value)}
+          >
             <PlusIcon size={16} /> Add keywords
           </button>
         </div>
@@ -93,7 +97,6 @@ export function WatchlistPage() {
             value={newKeyword}
             onChange={(event) => setNewKeyword(event.target.value)}
             placeholder="Keyword to observe"
-            autoFocus
           />
           <button className="primary-button" type="submit" disabled={addKeyword.isPending}>
             {addKeyword.isPending ? "Observing…" : "Add to watchlist"}
@@ -122,6 +125,7 @@ export function WatchlistPage() {
         <div className="range-switch">
           {["7D", "30D", "90D"].map((item) => (
             <button
+              type="button"
               key={item}
               className={period === item ? "is-active" : ""}
               onClick={() => setPeriod(item)}

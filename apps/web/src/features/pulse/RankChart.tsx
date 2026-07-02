@@ -34,11 +34,14 @@ export function RankChart() {
           <h2 id="momentum-heading">Keyword momentum</h2>
           <p>Observed positions · lower is better</p>
         </div>
-        <div className="range-switch" aria-label="Time range">
-          <button className="is-active">7D</button>
-          <button>30D</button>
-          <button>90D</button>
-        </div>
+        <fieldset className="range-switch">
+          <legend className="visually-hidden">Time range</legend>
+          <button type="button" className="is-active">
+            7D
+          </button>
+          <button type="button">30D</button>
+          <button type="button">90D</button>
+        </fieldset>
       </div>
       <div className="chart-legend">
         {chartSeries.map((series) => (
@@ -132,11 +135,7 @@ export function RankChart() {
                 width="84"
                 height={chart.height}
                 fill="transparent"
-                tabIndex={0}
-                role="button"
-                aria-label={`${date}, daily journal rank ${chartSeries[0]?.values[index]}`}
                 onPointerEnter={() => setActiveIndex(index)}
-                onFocus={() => setActiveIndex(index)}
               />
             );
           })}

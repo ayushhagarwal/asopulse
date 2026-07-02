@@ -57,13 +57,19 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
                 onChange={(event) => setQuery(event.target.value)}
                 placeholder="Search or type a command…"
               />
-              <button className="icon-button" onClick={onClose} aria-label="Close command menu">
+              <button
+                type="button"
+                className="icon-button"
+                onClick={onClose}
+                aria-label="Close command menu"
+              >
                 <CloseIcon size={17} />
               </button>
             </div>
             <div className="command-results">
               {filtered.map((action) => (
                 <button
+                  type="button"
                   key={action.to}
                   onClick={() => {
                     void navigate({ to: action.to });

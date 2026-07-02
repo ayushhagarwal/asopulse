@@ -3,13 +3,13 @@ import {
   flexRender,
   getCoreRowModel,
   getSortedRowModel,
-  useReactTable,
   type SortingState,
+  useReactTable,
 } from "@tanstack/react-table";
 import { motion } from "motion/react";
 import { useState } from "react";
-import { keywordRows, type KeywordRow } from "../../data/fixtures";
 import { StarIcon } from "../../components/icons";
+import { type KeywordRow, keywordRows } from "../../data/fixtures";
 
 const column = createColumnHelper<KeywordRow>();
 
@@ -22,6 +22,7 @@ export function OpportunityTable() {
       cell: ({ row, getValue }) => (
         <div className="keyword-cell">
           <button
+            type="button"
             className="star-button"
             aria-label={`${row.original.tracked ? "Untrack" : "Track"} ${getValue()}`}
             onClick={() =>
@@ -73,7 +74,7 @@ export function OpportunityTable() {
             <tr key={group.id}>
               {group.headers.map((header) => (
                 <th key={header.id}>
-                  <button onClick={header.column.getToggleSortingHandler()}>
+                  <button type="button" onClick={header.column.getToggleSortingHandler()}>
                     {flexRender(header.column.columnDef.header, header.getContext())}
                     <span>
                       {header.column.getIsSorted() === "asc"

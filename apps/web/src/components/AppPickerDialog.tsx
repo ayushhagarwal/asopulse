@@ -52,7 +52,12 @@ export function AppPickerDialog({
                 <h2>Choose your app</h2>
                 <p>Search the US App Store. You can change storefronts later.</p>
               </div>
-              <button className="icon-button" aria-label="Close app picker" onClick={onClose}>
+              <button
+                type="button"
+                className="icon-button"
+                aria-label="Close app picker"
+                onClick={onClose}
+              >
                 <CloseIcon />
               </button>
             </div>
@@ -68,13 +73,23 @@ export function AppPickerDialog({
                 value={input}
                 onChange={(event) => setInput(event.target.value)}
                 placeholder="App name or developer"
-                autoFocus
               />
               <button className="primary-button" type="submit">
                 Search
               </button>
             </form>
             <div className="picker-results" aria-live="polite">
+              <button
+                type="button"
+                className="demo-app-result"
+                onClick={() => {
+                  onSelect({ appId: "demo-clarity", name: "Clarity — Daily Journal", developer: "ASOpulse Demo", iconUrl: "" });
+                  onClose();
+                }}
+              >
+                <span>Use demo workspace</span>
+                <small>Restore the polished sample project</small>
+              </button>
               {search.isFetching ? (
                 <div className="picker-message">
                   <i /> Searching the store…
@@ -91,6 +106,7 @@ export function AppPickerDialog({
               ) : null}
               {search.data?.data.map((app) => (
                 <button
+                  type="button"
                   key={app.appId}
                   className="app-result"
                   onClick={() => {

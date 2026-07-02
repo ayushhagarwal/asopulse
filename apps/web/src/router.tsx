@@ -1,10 +1,9 @@
 import {
-  Outlet,
   createRootRoute,
   createRoute,
   createRouter,
   lazyRouteComponent,
-  redirect,
+  Outlet,
 } from "@tanstack/react-router";
 import { AppShell } from "./components/AppShell";
 
@@ -19,9 +18,7 @@ const appRoute = createRoute({
 const indexRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/",
-  beforeLoad: () => {
-    throw redirect({ to: "/pulse" });
-  },
+  component: lazyRouteComponent(() => import("./features/landing/LandingPage"), "LandingPage"),
 });
 
 const pulseRoute = createRoute({

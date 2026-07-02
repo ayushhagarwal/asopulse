@@ -1,5 +1,5 @@
-import { motion } from "motion/react";
 import { useQuery } from "@tanstack/react-query";
+import { motion } from "motion/react";
 import { useDeferredValue, useState } from "react";
 import { CheckIcon, PlusIcon, SearchIcon } from "../../components/icons";
 import { keywordRows } from "../../data/fixtures";
@@ -54,7 +54,6 @@ export function DiscoverPage() {
           value={query}
           onChange={(event) => setQuery(event.target.value)}
           placeholder="Try “daily journal”"
-          autoFocus
         />
         <kbd>↵</kbd>
       </form>
@@ -64,7 +63,7 @@ export function DiscoverPage() {
           Balances metadata saturation, result concentration, and your observed position. Every
           input is inspectable.
         </p>
-        <button>How it works</button>
+        <button type="button">How it works</button>
       </div>
       {discovery.data ? (
         <motion.div
@@ -145,6 +144,7 @@ export function DiscoverPage() {
                   </div>
                 </dl>
                 <button
+                  type="button"
                   className={isTracked ? "tracked-button" : "secondary-button"}
                   onClick={() =>
                     setTracked((current) => {

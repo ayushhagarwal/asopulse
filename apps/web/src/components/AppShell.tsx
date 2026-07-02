@@ -3,8 +3,6 @@ import { AnimatePresence, motion } from "motion/react";
 import { useEffect, useState } from "react";
 import { AppPickerDialog, type SelectedApp } from "./AppPickerDialog";
 import { CommandPalette } from "./CommandPalette";
-import { Logo } from "./Logo";
-import { PulseField } from "./PulseField";
 import {
   BookmarkIcon,
   ChevronDownIcon,
@@ -15,6 +13,8 @@ import {
   SearchIcon,
   SettingsIcon,
 } from "./icons";
+import { Logo } from "./Logo";
+import { PulseField } from "./PulseField";
 
 const navigation = [
   { to: "/pulse", label: "Pulse", icon: PulseIcon },
@@ -67,6 +67,7 @@ export function AppShell() {
     <div className="app-shell">
       <PulseField />
       <button
+        type="button"
         className="mobile-menu icon-button"
         aria-label="Open navigation"
         onClick={() => setMobileNavOpen(true)}
@@ -89,6 +90,7 @@ export function AppShell() {
         <div className="sidebar-brand-row">
           <Logo />
           <button
+            type="button"
             className="sidebar-close icon-button"
             aria-label="Close menu"
             onClick={() => setMobileNavOpen(false)}
@@ -130,7 +132,7 @@ export function AppShell() {
       </aside>
       <div className="workspace">
         <header className="utility-bar">
-          <button className="app-selector" onClick={() => setPickerOpen(true)}>
+          <button type="button" className="app-selector" onClick={() => setPickerOpen(true)}>
             <span className="app-icon">
               {selectedApp.iconUrl ? (
                 <img src={selectedApp.iconUrl} alt="" />
@@ -141,18 +143,18 @@ export function AppShell() {
             <span>{selectedApp.name}</span>
             <ChevronDownIcon size={16} />
           </button>
-          <button className="store-selector">
+          <button type="button" className="store-selector">
             <span>US · App Store</span>
             <ChevronDownIcon size={16} />
           </button>
-          <button className="command-trigger" onClick={() => setCommandOpen(true)}>
+          <button type="button" className="command-trigger" onClick={() => setCommandOpen(true)}>
             <SearchIcon size={18} />
             <span>Search or type a command…</span>
             <kbd>
               <CommandIcon size={13} /> K
             </kbd>
           </button>
-          <button className="avatar" aria-label="Open account menu">
+          <button type="button" className="avatar" aria-label="Open account menu">
             A
           </button>
         </header>
