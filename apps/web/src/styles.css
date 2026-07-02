@@ -1155,6 +1155,26 @@ kbd {
   border-radius: 50%;
   box-shadow: 0 0 0 5px #e7f7eb;
 }
+.backup-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+.backup-actions small {
+  flex-basis: 100%;
+  color: var(--ink-faint);
+  font-size: 10px;
+}
+.file-button {
+  cursor: pointer;
+}
+.file-button input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+}
 .settings-submit {
   border-top: 1px solid var(--line);
   padding-top: 25px;

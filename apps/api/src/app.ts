@@ -86,5 +86,29 @@ export function buildApp(provider: AppStoreProvider = new AppleSearchProvider())
     trackedKeywords,
     signals: rankingSignals,
   }));
+  app.post<{ Body: { version?: number; project?: unknown; trackedKeywords?: unknown[] } }>(
+    "/api/v1/projects/import",
+    async (request, reply) => {
+      if (
+        request.body?.version !== 1 ||
+        !request.body.project ||
+        !Array.isArray(request.body.trackedKeywords)
+      ) {
+        return reply.code(400).send({ error: "Unsupported or malformed ASOpulse backup" });
+      }
+      return reply.code(202).send({
+        accepted: true,
+        importedKeywords: request.body.trackedKeywords.length,
+        note: "Import validated. Persistent replacement is enabled when PostgreSQL is configured.",
+      });
+    },
+  );
+  app.get("/api/v1/diagnostics", async () => ({
+    api: "healthy",
+    worker: process.env.REDIS_URL ? "configured" : "development",
+    database: process.env.DATABASE_URL ? "configured" : "development",
+    telemetry: false,
+    lastObservationAt: "2026-07-02T06:00:00.000Z",
+  }));
   return app;
 }

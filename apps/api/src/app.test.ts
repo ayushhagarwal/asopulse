@@ -54,4 +54,12 @@ describe("ASOpulse API", () => {
     expect(response.headers["content-type"]).toContain("text/csv");
     expect(response.body).toContain("daily journal");
   });
+  test("rejects malformed backup imports", async () => {
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/v1/projects/import",
+      payload: { version: 99 },
+    });
+    expect(response.statusCode).toBe(400);
+  });
 });

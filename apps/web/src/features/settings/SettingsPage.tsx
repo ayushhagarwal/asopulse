@@ -1,10 +1,34 @@
 import { motion } from "motion/react";
+import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { CheckIcon, DownloadIcon } from "../../components/icons";
+import { apiRequest } from "../../lib/api";
+
+type Diagnostics = {
+  api: string;
+  worker: string;
+  database: string;
+  telemetry: boolean;
+  lastObservationAt: string;
+};
+
+function downloadBackup() {
+  const anchor = document.createElement("a");
+  anchor.href = "/api/v1/projects/demo/backup";
+  anchor.download = "asopulse-backup.json";
+  anchor.click();
+}
 
 export function SettingsPage() {
   const [saved, setSaved] = useState(false);
   const [retention, setRetention] = useState("forever");
+  const [importMessage, setImportMessage] = useState("");
+  const diagnostics = useQuery({
+    queryKey: ["diagnostics"],
+    queryFn: () => apiRequest<Diagnostics>("/diagnostics"),
+    retry: false,
+    refetchInterval: 30_000,
+  });
   return (
     <motion.div
       className="page settings-page"
@@ -76,17 +100,45 @@ export function SettingsPage() {
             <h2>Backup</h2>
             <p>Export a portable snapshot of projects, keywords, and observations.</p>
           </div>
-          <button type="button" className="secondary-button">
-            <DownloadIcon size={16} /> Download backup
-          </button>
+          <div className="backup-actions">
+            <button type="button" className="secondary-button" onClick={downloadBackup}>
+              <DownloadIcon size={16} /> Download backup
+            </button>
+            <label className="secondary-button file-button">
+              Restore backup
+              <input
+                type="file"
+                accept="application/json"
+                onChange={async (event) => {
+                  const file = event.target.files?.[0];
+                  if (!file) return;
+                  try {
+                    const backup = JSON.parse(await file.text()) as unknown;
+                    const result = await apiRequest<{ importedKeywords: number }>(
+                      "/projects/import",
+                      { method: "POST", body: JSON.stringify(backup) },
+                    );
+                    setImportMessage(`${result.importedKeywords} keywords validated for import.`);
+                  } catch {
+                    setImportMessage("That file is not a valid ASOpulse backup.");
+                  }
+                }}
+              />
+            </label>
+            {importMessage ? <small>{importMessage}</small> : null}
+          </div>
         </section>
         <section className="settings-section">
           <div>
             <h2>Diagnostics</h2>
-            <p>API healthy · Worker ready · Last observation 4 hours ago</p>
+            <p>
+              {diagnostics.data
+                ? `API ${diagnostics.data.api} · Worker ${diagnostics.data.worker} · Database ${diagnostics.data.database}`
+                : "Checking local services…"}
+            </p>
           </div>
           <span className="health">
-            <i /> All systems calm
+            <i /> {diagnostics.isError ? "API currently offline" : "All systems calm"}
           </span>
         </section>
         <div className="settings-submit">
