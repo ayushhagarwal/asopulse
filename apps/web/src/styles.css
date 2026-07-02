@@ -120,7 +120,7 @@ a {
   align-items: center;
   justify-content: space-between;
 }
-.sidebar-close {
+.sidebar .sidebar-close {
   display: none;
 }
 .logo-mark circle {
@@ -1303,7 +1303,7 @@ kbd {
   .sidebar.is-open {
     transform: translateX(0);
   }
-  .sidebar-close {
+  .sidebar .sidebar-close {
     display: grid;
     width: 36px;
     height: 36px;
