@@ -1,6 +1,7 @@
 import { Link, Outlet, useRouterState } from "@tanstack/react-router";
 import { AnimatePresence, motion } from "motion/react";
 import { useEffect, useState } from "react";
+import { AppPickerDialog, type SelectedApp } from "./AppPickerDialog";
 import { CommandPalette } from "./CommandPalette";
 import { Logo } from "./Logo";
 import { PulseField } from "./PulseField";
@@ -24,6 +25,27 @@ const navigation = [
 export function AppShell() {
   const [commandOpen, setCommandOpen] = useState(false);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [selectedApp, setSelectedApp] = useState<SelectedApp>(() => {
+    try {
+      const saved = localStorage.getItem("asopulse:selected-app:v1");
+      return saved
+        ? (JSON.parse(saved) as SelectedApp)
+        : {
+            appId: "demo-clarity",
+            name: "Clarity — Daily Journal",
+            developer: "ASOpulse Demo",
+            iconUrl: "",
+          };
+    } catch {
+      return {
+        appId: "demo-clarity",
+        name: "Clarity — Daily Journal",
+        developer: "ASOpulse Demo",
+        iconUrl: "",
+      };
+    }
+  });
   const pathname = useRouterState({ select: (state) => state.location.pathname });
 
   useEffect(() => {
@@ -108,9 +130,15 @@ export function AppShell() {
       </aside>
       <div className="workspace">
         <header className="utility-bar">
-          <button className="app-selector">
-            <span className="app-icon">C</span>
-            <span>Clarity — Daily Journal</span>
+          <button className="app-selector" onClick={() => setPickerOpen(true)}>
+            <span className="app-icon">
+              {selectedApp.iconUrl ? (
+                <img src={selectedApp.iconUrl} alt="" />
+              ) : (
+                selectedApp.name.slice(0, 1)
+              )}
+            </span>
+            <span>{selectedApp.name}</span>
             <ChevronDownIcon size={16} />
           </button>
           <button className="store-selector">
@@ -133,6 +161,14 @@ export function AppShell() {
         </main>
       </div>
       <CommandPalette open={commandOpen} onClose={() => setCommandOpen(false)} />
+      <AppPickerDialog
+        open={pickerOpen}
+        onClose={() => setPickerOpen(false)}
+        onSelect={(app) => {
+          setSelectedApp(app);
+          localStorage.setItem("asopulse:selected-app:v1", JSON.stringify(app));
+        }}
+      />
     </div>
   );
 }
