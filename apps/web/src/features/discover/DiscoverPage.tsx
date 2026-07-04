@@ -61,8 +61,8 @@ export function DiscoverPage() {
     <motion.div className="page" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}>
       <div className="page-intro compact">
         <div>
-          <h1>Find the opening.</h1>
-          <p>Explore observable App Store results—without imaginary volume numbers.</p>
+          <h1>Discover new keywords.</h1>
+          <p>Explore observable App Store results before they enter tracking.</p>
         </div>
       </div>
       <form
@@ -83,8 +83,8 @@ export function DiscoverPage() {
       <div className="method-note">
         <span>Opportunity v1.0</span>
         <p>
-          Balances metadata saturation, result concentration, and your observed position. Every
-          input is inspectable.
+          Balances metadata saturation, result concentration, and your observed position. Nothing
+          here changes your tracked set until you choose to add it.
         </p>
         <button type="button">How it works</button>
       </div>
@@ -128,7 +128,7 @@ export function DiscoverPage() {
       <section className="discover-results">
         <div className="section-heading-row">
           <div>
-            <h2>Related opportunities</h2>
+            <h2>New opportunities</h2>
             <p>{results.length} observable keyword patterns</p>
           </div>
         </div>

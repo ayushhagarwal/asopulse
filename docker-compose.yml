@@ -1,6 +1,7 @@
 services:
   postgres:
     image: postgres:17-alpine
+    ports: ["127.0.0.1:5432:5432"]
     environment:
       POSTGRES_DB: asopulse
       POSTGRES_USER: asopulse
@@ -9,6 +10,7 @@ services:
     healthcheck: { test: ["CMD-SHELL", "pg_isready -U asopulse"], interval: 5s, timeout: 3s, retries: 10 }
   redis:
     image: redis:7-alpine
+    ports: ["127.0.0.1:6379:6379"]
     command: redis-server --appendonly yes
     volumes: ["redis-data:/data"]
     healthcheck: { test: ["CMD", "redis-cli", "ping"], interval: 5s, timeout: 3s, retries: 10 }

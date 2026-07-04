@@ -160,6 +160,9 @@ const workspace = {
       results: await provider.searchKeyword("daily journal", "US"),
     };
   },
+  async deleteTrackedKeywordForProject() {
+    return { deleted: true, id: watchlistItem.id };
+  },
   async exportProjectCsv() {
     return "keyword,rank\n daily journal,12";
   },
@@ -275,6 +278,16 @@ describe("ASOpulse API", () => {
     });
     expect(response.headers["content-type"]).toContain("text/csv");
     expect(response.body).toContain("daily journal");
+  });
+
+  test("deletes a tracked keyword from the current project", async () => {
+    const response = await app.inject({
+      method: "DELETE",
+      url: `/api/v1/projects/${projectId}/watchlist/${watchlistItem.id}`,
+      headers: { cookie: sessionCookie },
+    });
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({ deleted: true, id: watchlistItem.id });
   });
 
   test("rejects unauthenticated project access", async () => {

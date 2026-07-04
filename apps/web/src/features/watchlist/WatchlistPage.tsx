@@ -1,8 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { motion } from "motion/react";
-import { useMemo, useState } from "react";
-import { CheckIcon, DownloadIcon, PlusIcon, SearchIcon } from "../../components/icons";
+import { useEffect, useMemo, useState } from "react";
+import { CheckIcon, CloseIcon, DownloadIcon, PlusIcon, SearchIcon } from "../../components/icons";
+import { KeywordComposerDialog } from "../../components/KeywordComposerDialog";
 import { apiRequest } from "../../lib/api";
+import { parseKeywordInput } from "../../lib/keywords";
 import { useWorkspace } from "../../lib/workspace";
 
 type WatchlistItem = {
@@ -20,8 +22,7 @@ export function WatchlistPage() {
   const { selectedProject } = useWorkspace();
   const [query, setQuery] = useState("");
   const [period, setPeriod] = useState("7D");
-  const [adding, setAdding] = useState(false);
-  const [newKeyword, setNewKeyword] = useState("");
+  const [composerOpen, setComposerOpen] = useState(false);
   const queryClient = useQueryClient();
   const watchlist = useQuery({
     queryKey: ["watchlist", selectedProject.id],
@@ -29,25 +30,68 @@ export function WatchlistPage() {
     staleTime: 60_000,
   });
   const addKeyword = useMutation({
-    mutationFn: (keyword: string) =>
-      apiRequest<{ data: WatchlistItem }>(`/projects/${selectedProject.id}/watchlist`, {
-        method: "POST",
-        body: JSON.stringify({ keyword }),
-      }),
-    onSuccess: ({ data }) => {
+    mutationFn: async (keywordInput: string) => {
+      const keywords = parseKeywordInput(keywordInput);
+      const created: WatchlistItem[] = [];
+
+      for (const keyword of keywords) {
+        const response = await apiRequest<{ data: WatchlistItem }>(
+          `/projects/${selectedProject.id}/watchlist`,
+          {
+            method: "POST",
+            body: JSON.stringify({ keyword }),
+          },
+        );
+        created.push(response.data);
+      }
+
+      return created;
+    },
+    onSuccess: (created) => {
+      queryClient.setQueryData<WatchlistResponse>(["watchlist", selectedProject.id], (current) => {
+        const existing = current?.data ?? [];
+        const merged = new Map(existing.map((item) => [item.id, item]));
+        for (const item of created) merged.set(item.id, item);
+        return {
+          data: [...merged.values()],
+          nextObservationAt: current?.nextObservationAt ?? null,
+        };
+      });
+      queryClient.invalidateQueries({ queryKey: ["pulse", selectedProject.id] });
+      setComposerOpen(false);
+    },
+  });
+  const deleteKeyword = useMutation({
+    mutationFn: (trackedKeywordId: string) =>
+      apiRequest<{ deleted: true; id: string }>(
+        `/projects/${selectedProject.id}/watchlist/${trackedKeywordId}`,
+        {
+          method: "DELETE",
+        },
+      ),
+    onSuccess: ({ id }) => {
       queryClient.setQueryData<WatchlistResponse>(["watchlist", selectedProject.id], (current) => ({
-        data: [...(current?.data ?? []), data],
+        data: (current?.data ?? []).filter((item) => item.id !== id),
         nextObservationAt: current?.nextObservationAt ?? null,
       }));
       queryClient.invalidateQueries({ queryKey: ["pulse", selectedProject.id] });
-      setNewKeyword("");
-      setAdding(false);
     },
   });
   const rows = useMemo(
     () => (watchlist.data?.data ?? []).filter((row) => row.keyword.includes(query.toLowerCase())),
     [query, watchlist.data?.data],
   );
+
+  useEffect(() => {
+    const searchParams = new URLSearchParams(window.location.search);
+    if (searchParams.get("add") === "1") {
+      setComposerOpen(true);
+      searchParams.delete("add");
+      const nextSearch = searchParams.toString();
+      const nextUrl = `${window.location.pathname}${nextSearch ? `?${nextSearch}` : ""}${window.location.hash}`;
+      window.history.replaceState({}, "", nextUrl);
+    }
+  }, []);
 
   function downloadCsv() {
     const anchor = document.createElement("a");
@@ -60,46 +104,21 @@ export function WatchlistPage() {
     <motion.div className="page" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}>
       <div className="page-intro compact">
         <div>
-          <h1>Watchlist</h1>
-          <p>A deliberate set of terms, observed daily.</p>
+          <h1>Track keywords</h1>
+          <p>Your current keywords for this app, observed daily.</p>
         </div>
         <div className="page-actions">
           <button type="button" className="secondary-button" onClick={downloadCsv}>
             <DownloadIcon size={16} /> Export CSV
           </button>
-          <button
-            type="button"
-            className="primary-button"
-            onClick={() => setAdding((value) => !value)}
-          >
+          <button type="button" className="primary-button" onClick={() => setComposerOpen(true)}>
             <PlusIcon size={16} /> Add keywords
           </button>
         </div>
       </div>
-      {adding ? (
-        <motion.form
-          className="add-keyword-row"
-          initial={{ opacity: 0, height: 0 }}
-          animate={{ opacity: 1, height: "auto" }}
-          onSubmit={(event) => {
-            event.preventDefault();
-            if (newKeyword.trim().length >= 2) addKeyword.mutate(newKeyword.trim());
-          }}
-        >
-          <SearchIcon size={18} />
-          <input
-            value={newKeyword}
-            onChange={(event) => setNewKeyword(event.target.value)}
-            placeholder="Keyword to observe"
-          />
-          <button className="primary-button" type="submit" disabled={addKeyword.isPending}>
-            {addKeyword.isPending ? "Observing…" : "Add to watchlist"}
-          </button>
-        </motion.form>
-      ) : null}
       {addKeyword.isSuccess ? (
         <p className="success-message">
-          <CheckIcon size={15} /> Keyword added with a fresh App Store observation.
+          <CheckIcon size={15} /> Keywords added with fresh App Store observations.
         </p>
       ) : null}
       {addKeyword.isError ? (
@@ -135,7 +154,7 @@ export function WatchlistPage() {
         </span>
       </div>
       {rows.length === 0 ? (
-        <div className="empty-table">Add a keyword to begin your persistent watchlist.</div>
+        <div className="empty-table">Add a keyword to begin tracking for this app.</div>
       ) : (
         <div className="watchlist-table">
           <div className="watchlist-head">
@@ -162,11 +181,33 @@ export function WatchlistPage() {
                 {row.movement > 0 ? "↑" : row.movement < 0 ? "↓" : "→"} {Math.abs(row.movement)}
               </span>
               <span>{row.opportunity}</span>
-              <span className="plain-tag">{row.tags[0] ?? "untagged"}</span>
+              <div className="watchlist-row-actions">
+                <span className="plain-tag">{row.tags[0] ?? "untagged"}</span>
+                <button
+                  type="button"
+                  className="row-delete-button"
+                  aria-label={`Delete ${row.keyword}`}
+                  onClick={() => deleteKeyword.mutate(row.id)}
+                  disabled={deleteKeyword.isPending}
+                >
+                  <CloseIcon size={14} />
+                </button>
+              </div>
             </motion.div>
           ))}
         </div>
       )}
+      <KeywordComposerDialog
+        open={composerOpen}
+        title="Add keywords"
+        description="Paste one or more terms for this app’s tracking list."
+        submitLabel="Add to tracking"
+        submitting={addKeyword.isPending}
+        onClose={() => setComposerOpen(false)}
+        onSubmit={async (value) => {
+          await addKeyword.mutateAsync(value);
+        }}
+      />
     </motion.div>
   );
 }

@@ -1,8 +1,11 @@
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { motion } from "motion/react";
-import { ArrowDownIcon, ArrowUpIcon, SearchIcon } from "../../components/icons";
+import { useEffect, useState } from "react";
+import { ArrowDownIcon, ArrowUpIcon, PlusIcon } from "../../components/icons";
+import { KeywordComposerDialog } from "../../components/KeywordComposerDialog";
 import { apiRequest } from "../../lib/api";
+import { parseKeywordInput } from "../../lib/keywords";
 import { useWorkspace } from "../../lib/workspace";
 import { OpportunityTable } from "./OpportunityTable";
 import { RankChart } from "./RankChart";
@@ -43,13 +46,71 @@ type PulseResponse = {
 
 export function PulsePage() {
   const { selectedProject } = useWorkspace();
+  const queryClient = useQueryClient();
+  const [graphVisible, setGraphVisible] = useState(() => {
+    if (typeof window === "undefined") return true;
+    return window.localStorage.getItem("asopulse:pulse-graph") !== "hidden";
+  });
+  const [composerOpen, setComposerOpen] = useState(false);
   const pulse = useQuery({
     queryKey: ["pulse", selectedProject.id],
     queryFn: () => apiRequest<PulseResponse>(`/projects/${selectedProject.id}/pulse`),
   });
 
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem("asopulse:pulse-graph", graphVisible ? "shown" : "hidden");
+    }
+  }, [graphVisible]);
+
   const keywords = pulse.data?.keywords ?? [];
   const signals = pulse.data?.signals ?? [];
+  const addKeywords = useMutation({
+    mutationFn: async (keywordInput: string) => {
+      const keywordsToAdd = parseKeywordInput(keywordInput);
+      if (keywordsToAdd.length === 0) {
+        throw new Error("Add at least one keyword");
+      }
+
+      for (const keyword of keywordsToAdd) {
+        await apiRequest(`/projects/${selectedProject.id}/watchlist`, {
+          method: "POST",
+          body: JSON.stringify({ keyword }),
+        });
+      }
+    },
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["pulse", selectedProject.id] });
+      await queryClient.invalidateQueries({ queryKey: ["watchlist", selectedProject.id] });
+      setComposerOpen(false);
+    },
+  });
+  const deleteKeyword = useMutation({
+    mutationFn: (trackedKeywordId: string) =>
+      apiRequest<{ deleted: true; id: string }>(
+        `/projects/${selectedProject.id}/watchlist/${trackedKeywordId}`,
+        { method: "DELETE" },
+      ),
+    onSuccess: ({ id }) => {
+      queryClient.setQueryData<PulseResponse>(["pulse", selectedProject.id], (current) =>
+        current
+          ? {
+              ...current,
+              keywords: current.keywords.filter((keyword) => keyword.id !== id),
+              series: current.series.filter(
+                (series) =>
+                  current.keywords.find((keyword) => keyword.id === id)?.keyword !== series.keyword,
+              ),
+              signals: current.signals.filter(
+                (signal) =>
+                  current.keywords.find((keyword) => keyword.id === id)?.keyword !== signal.keyword,
+              ),
+            }
+          : current,
+      );
+      queryClient.invalidateQueries({ queryKey: ["watchlist", selectedProject.id] });
+    },
+  });
 
   return (
     <motion.div
@@ -64,10 +125,21 @@ export function PulsePage() {
           <h1>Your market, in motion.</h1>
           <p>The signals worth acting on, distilled from today’s movement.</p>
         </div>
-        <time dateTime="2026-07-02">Thursday, July 2</time>
+        <div className="pulse-intro-controls">
+          <button
+            type="button"
+            className="secondary-button"
+            onClick={() => setGraphVisible((value) => !value)}
+          >
+            {graphVisible ? "Hide graph" : "Show graph"}
+          </button>
+          <time dateTime="2026-07-02">Thursday, July 2</time>
+        </div>
       </div>
-      <div className="pulse-grid">
-        <RankChart series={pulse.data?.series ?? []} timeline={pulse.data?.timeline ?? []} />
+      <div className={`pulse-grid ${graphVisible ? "" : "is-graph-hidden"}`}>
+        {graphVisible ? (
+          <RankChart series={pulse.data?.series ?? []} timeline={pulse.data?.timeline ?? []} />
+        ) : null}
         <aside className="signals" aria-labelledby="signals-heading">
           <h2 id="signals-heading">Signals</h2>
           {signals.length === 0 ? (
@@ -116,7 +188,7 @@ export function PulsePage() {
             </motion.button>
           ))}
           <Link to="/watchlist" className="text-link">
-            Review watchlist <span>→</span>
+            Review tracking <span>→</span>
           </Link>
         </aside>
       </div>
@@ -132,12 +204,27 @@ export function PulsePage() {
                   : "Observed rankings and explainable result competition."}
             </p>
           </div>
-          <Link className="primary-button" to="/discover">
-            <SearchIcon size={17} /> Find keywords
-          </Link>
+          <button type="button" className="primary-button" onClick={() => setComposerOpen(true)}>
+            <PlusIcon size={17} /> Add keywords
+          </button>
         </div>
-        <OpportunityTable rows={keywords} />
+        <OpportunityTable
+          rows={keywords}
+          onDelete={(id) => deleteKeyword.mutate(id)}
+          deletingId={deleteKeyword.isPending ? deleteKeyword.variables : undefined}
+        />
       </section>
+      <KeywordComposerDialog
+        open={composerOpen}
+        title="Add keywords"
+        description="Paste one or more terms for this app’s tracking list."
+        submitLabel="Add to tracking"
+        submitting={addKeywords.isPending}
+        onClose={() => setComposerOpen(false)}
+        onSubmit={async (value) => {
+          await addKeywords.mutateAsync(value);
+        }}
+      />
     </motion.div>
   );
 }

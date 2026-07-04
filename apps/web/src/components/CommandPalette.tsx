@@ -11,7 +11,7 @@ const actions = [
     to: "/discover",
     icon: SearchIcon,
   },
-  { label: "Open Watchlist", hint: "Review tracked terms", to: "/watchlist", icon: BookmarkIcon },
+  { label: "Open tracking", hint: "Review tracked terms", to: "/watchlist", icon: BookmarkIcon },
   { label: "Open Settings", hint: "Schedules and data", to: "/settings", icon: SettingsIcon },
 ] as const;
 

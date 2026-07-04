@@ -8,7 +8,7 @@ import {
 } from "@tanstack/react-table";
 import { motion } from "motion/react";
 import { useState } from "react";
-import { StarIcon } from "../../components/icons";
+import { CloseIcon, StarIcon } from "../../components/icons";
 
 type KeywordRow = {
   id: string;
@@ -22,7 +22,15 @@ type KeywordRow = {
 
 const column = createColumnHelper<KeywordRow>();
 
-export function OpportunityTable({ rows }: { rows: KeywordRow[] }) {
+export function OpportunityTable({
+  rows,
+  onDelete,
+  deletingId,
+}: {
+  rows: KeywordRow[];
+  onDelete: (id: string) => void;
+  deletingId: string | undefined;
+}) {
   const [sorting, setSorting] = useState<SortingState>([{ id: "opportunity", desc: true }]);
   const columns = [
     column.accessor("keyword", {
@@ -52,6 +60,23 @@ export function OpportunityTable({ rows }: { rows: KeywordRow[] }) {
           {info.getValue() > 0 ? "↑" : "↓"} {Math.abs(info.getValue())}
         </span>
       ),
+    }),
+    column.display({
+      id: "actions",
+      header: "",
+      cell: ({ row }) => (
+        <button
+          type="button"
+          className="row-delete-button"
+          aria-label={`Delete ${row.original.keyword}`}
+          title="Remove from watchlist"
+          onClick={() => onDelete(row.original.id)}
+          disabled={deletingId === row.original.id}
+        >
+          <CloseIcon size={14} />
+        </button>
+      ),
+      enableSorting: false,
     }),
   ];
   const table = useReactTable({
