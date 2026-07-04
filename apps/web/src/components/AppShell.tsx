@@ -22,7 +22,7 @@ import { PulseField } from "./PulseField";
 const navigation = [
   { to: "/pulse", label: "Pulse", icon: PulseIcon },
   { to: "/discover", label: "Discover", icon: SearchIcon },
-  { to: "/watchlist", label: "Watchlist", icon: BookmarkIcon },
+  { to: "/watchlist", label: "Track", icon: BookmarkIcon },
 ] as const;
 
 export function AppShell({ children }: { children: ReactNode }) {

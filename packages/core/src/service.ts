@@ -388,6 +388,27 @@ export function createWorkspaceService({
     return match;
   }
 
+  async function deleteTrackedKeywordForProject(
+    ownerId: string,
+    projectId: string,
+    trackedKeywordId: string,
+  ) {
+    await requireOwnedProject(ownerId, projectId);
+    const [existing] = await database
+      .select({ id: trackedKeywords.id })
+      .from(trackedKeywords)
+      .where(
+        and(eq(trackedKeywords.id, trackedKeywordId), eq(trackedKeywords.projectId, projectId)),
+      )
+      .limit(1);
+
+    if (!existing) throw new Error("Tracked keyword not found");
+
+    await database.delete(trackedKeywords).where(eq(trackedKeywords.id, trackedKeywordId));
+
+    return { deleted: true as const, id: trackedKeywordId };
+  }
+
   async function getWatchlistForProject(ownerId: string, projectId: string) {
     await requireOwnedProject(ownerId, projectId);
     return {
@@ -688,6 +709,7 @@ export function createWorkspaceService({
     observeAllProjects,
     observeProject,
     restoreProject,
+    deleteTrackedKeywordForProject,
     trackKeywordForProject,
   };
 }

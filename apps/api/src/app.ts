@@ -166,6 +166,23 @@ export function buildApp({
     },
   );
 
+  app.delete<{ Params: { projectId: string; trackedKeywordId: string } }>(
+    "/api/v1/projects/:projectId/watchlist/:trackedKeywordId",
+    async (request, reply) => {
+      const user = await requireSessionUser(request, reply, runtimeAuthStore);
+      if (!user) return;
+      try {
+        return await runtimeWorkspace.deleteTrackedKeywordForProject(
+          user.id,
+          request.params.projectId,
+          request.params.trackedKeywordId,
+        );
+      } catch (error) {
+        return handleRouteError(error, reply);
+      }
+    },
+  );
+
   app.get<{ Params: { projectId: string } }>(
     "/api/v1/projects/:projectId/export.csv",
     async (request, reply) => {
