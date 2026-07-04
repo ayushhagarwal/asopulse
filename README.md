@@ -1,33 +1,59 @@
 # ASOpulse
 
-ASOpulse is an open-source App Store keyword research and rank-monitoring workspace.
-It turns public store observations into transparent, actionable signals without inventing
-search-volume data.
+ASOpulse is an open-source, public-data-first App Store keyword workspace.
+It helps you track current rankings, discover new keywords, and turn observable store data into
+transparent signals without inventing search-volume metrics.
 
-## Status
+| [Overview](#overview) | [Quick Start](#quick-start) | [Local Setup](docs/local-setup.md) | [Self-Hosting](docs/self-hosting.md) | [Contributing](CONTRIBUTING.md) | [Architecture](docs/architecture.md) | [License](#license) |
+| --- | --- | --- | --- | --- | --- | --- |
 
-ASOpulse is under active development. The first release covers Pulse, Discover, Watchlist,
-Settings, CSV export, and self-hosting for the Apple App Store.
+## Overview
 
-## Development
+ASOpulse is designed to stay calm, minimal, and traceable.
+
+- Pulse surfaces rank movement and notable changes.
+- Discover helps you research new keyword opportunities.
+- Track keeps your current keywords organized and monitored.
+- Settings covers schedules, retention, backup and restore, and appearance.
+
+V1 intentionally excludes competitors, reviews, App Store Connect, Apple Ads, Google Play, teams,
+billing, AI writing, and native wrappers.
+
+## Quick Start
 
 ```bash
 pnpm install
+cp .env.example .env
+docker compose up -d postgres redis
+pnpm --filter @asopulse/db db:migrate
 pnpm dev
 ```
 
-The web app runs at `http://localhost:5173`; the API runs at `http://localhost:4100`.
-See [docs/architecture.md](docs/architecture.md) and [CONTRIBUTING.md](CONTRIBUTING.md).
+The web app runs at `http://localhost:5173` and the API runs at `http://localhost:4100`.
+Use the local setup guide for a guided development flow and the self-hosting guide for the full
+Docker-based stack.
 
-For the complete self-hosted stack:
+## Local Setup
 
-```bash
-cp .env.example .env
-docker compose up --build
-```
+For the complete developer workflow, see [docs/local-setup.md](docs/local-setup.md).
+That guide covers dependencies, environment variables, PostgreSQL, Redis, migrations, and the
+recommended local run loop.
 
-Open `http://localhost:8080`. Replace the example database password and session secret before
-exposing the service to a network.
+## Self-Hosting
+
+For production-style Docker hosting, see [docs/self-hosting.md](docs/self-hosting.md).
+It explains how to create PostgreSQL and Redis with Compose, configure secrets, run migrations,
+back up data, and expose the service safely.
+
+## Contributing
+
+Please read [CONTRIBUTING.md](CONTRIBUTING.md) before opening a pull request.
+It describes the repo workflow, quality bar, and release expectations.
+
+## Architecture
+
+See [docs/architecture.md](docs/architecture.md) for the monorepo layout, data flow, and product
+principles.
 
 ## License
 
