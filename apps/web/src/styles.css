@@ -34,6 +34,9 @@ body {
   background: #fff;
   color: var(--ink);
 }
+#root {
+  min-height: 100vh;
+}
 button,
 input,
 select {
@@ -660,6 +663,99 @@ kbd {
   justify-content: center;
   align-items: flex-start;
   padding-top: 13vh;
+}
+.boot-shell {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 32px;
+  background:
+    radial-gradient(circle at top right, rgba(221, 245, 227, 0.7), transparent 26%),
+    linear-gradient(180deg, #ffffff 0%, #fbfefc 100%);
+}
+.boot-panel {
+  width: min(100%, 460px);
+  display: grid;
+  gap: 18px;
+  padding: 36px;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.94);
+  box-shadow: var(--shadow-float);
+}
+.boot-panel-wide {
+  width: min(100%, 720px);
+}
+.boot-panel-center {
+  justify-items: center;
+  text-align: center;
+}
+.boot-copy {
+  display: grid;
+  gap: 8px;
+}
+.boot-copy h1 {
+  margin: 0;
+  font-size: clamp(2rem, 3vw, 2.9rem);
+  line-height: 1;
+  letter-spacing: -0.075em;
+}
+.boot-copy p,
+.boot-panel-center p {
+  margin: 0;
+  color: var(--ink-soft);
+  line-height: 1.6;
+}
+.boot-field {
+  display: grid;
+  gap: 8px;
+  font-size: 14px;
+  color: var(--ink-soft);
+}
+.boot-field span {
+  font-weight: 560;
+  color: var(--ink);
+}
+.boot-field input {
+  height: 48px;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  padding: 0 14px;
+  background: rgba(255, 255, 255, 0.92);
+}
+.boot-button {
+  justify-content: center;
+}
+.boot-search {
+  margin-top: 4px;
+}
+.boot-results {
+  min-height: 220px;
+}
+.existing-projects {
+  display: grid;
+  gap: 10px;
+}
+.existing-project.is-current {
+  border-color: #bdd9c4;
+  background: #f8fcf9;
+}
+.existing-project small {
+  color: var(--ink-soft);
+}
+.empty-copy,
+.empty-table,
+.empty-chart {
+  color: var(--ink-soft);
+  font-size: 14px;
+  line-height: 1.6;
+}
+.empty-table,
+.empty-chart {
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  padding: 24px;
+  background: rgba(255, 255, 255, 0.78);
 }
 .command-dialog {
   width: min(600px, calc(100vw - 32px));

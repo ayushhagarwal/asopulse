@@ -9,32 +9,29 @@ import {
 import { motion } from "motion/react";
 import { useState } from "react";
 import { StarIcon } from "../../components/icons";
-import { type KeywordRow, keywordRows } from "../../data/fixtures";
+
+type KeywordRow = {
+  id: string;
+  keyword: string;
+  rank: number | null;
+  competition: number;
+  opportunity: number;
+  movement: number;
+  tracked: boolean;
+};
 
 const column = createColumnHelper<KeywordRow>();
 
-export function OpportunityTable() {
-  const [rows, setRows] = useState(keywordRows.slice(0, 4));
+export function OpportunityTable({ rows }: { rows: KeywordRow[] }) {
   const [sorting, setSorting] = useState<SortingState>([{ id: "opportunity", desc: true }]);
   const columns = [
     column.accessor("keyword", {
       header: "Keyword",
       cell: ({ row, getValue }) => (
         <div className="keyword-cell">
-          <button
-            type="button"
-            className="star-button"
-            aria-label={`${row.original.tracked ? "Untrack" : "Track"} ${getValue()}`}
-            onClick={() =>
-              setRows((current) =>
-                current.map((item) =>
-                  item.id === row.original.id ? { ...item, tracked: !item.tracked } : item,
-                ),
-              )
-            }
-          >
+          <span className="star-button" aria-hidden="true">
             <StarIcon size={17} fill={row.original.tracked ? "#dff5e4" : "none"} />
-          </button>
+          </span>
           <strong>{getValue()}</strong>
         </div>
       ),
@@ -65,6 +62,14 @@ export function OpportunityTable() {
     getCoreRowModel: getCoreRowModel(),
     getSortedRowModel: getSortedRowModel(),
   });
+
+  if (rows.length === 0) {
+    return (
+      <div className="empty-table">
+        Your first tracked keywords will appear here after a live observation.
+      </div>
+    );
+  }
 
   return (
     <div className="data-table-wrap">

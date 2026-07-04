@@ -1,7 +1,10 @@
-import { Link, Outlet, useRouterState } from "@tanstack/react-router";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { Link, useRouterState } from "@tanstack/react-router";
 import { AnimatePresence, motion } from "motion/react";
-import { useEffect, useState } from "react";
-import { AppPickerDialog, type SelectedApp } from "./AppPickerDialog";
+import { type ReactNode, useEffect, useState } from "react";
+import { apiRequest } from "../lib/api";
+import { useWorkspace } from "../lib/workspace";
+import { AppPickerDialog, type SearchResult } from "./AppPickerDialog";
 import { CommandPalette } from "./CommandPalette";
 import {
   BookmarkIcon,
@@ -22,31 +25,31 @@ const navigation = [
   { to: "/watchlist", label: "Watchlist", icon: BookmarkIcon },
 ] as const;
 
-export function AppShell() {
+export function AppShell({ children }: { children: ReactNode }) {
+  const { projects, selectedProject, selectedProjectId, setSelectedProjectId, user } =
+    useWorkspace();
   const [commandOpen, setCommandOpen] = useState(false);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
-  const [selectedApp, setSelectedApp] = useState<SelectedApp>(() => {
-    try {
-      const saved = localStorage.getItem("asopulse:selected-app:v1");
-      return saved
-        ? (JSON.parse(saved) as SelectedApp)
-        : {
-            appId: "demo-clarity",
-            name: "Clarity — Daily Journal",
-            developer: "ASOpulse Demo",
-            iconUrl: "",
-          };
-    } catch {
-      return {
-        appId: "demo-clarity",
-        name: "Clarity — Daily Journal",
-        developer: "ASOpulse Demo",
-        iconUrl: "",
-      };
-    }
-  });
+  const queryClient = useQueryClient();
   const pathname = useRouterState({ select: (state) => state.location.pathname });
+  const createProject = useMutation({
+    mutationFn: (app: SearchResult) =>
+      apiRequest<{ data: { id: string } }>("/projects", {
+        method: "POST",
+        body: JSON.stringify({
+          name: app.name,
+          appId: app.appId,
+          appName: app.name,
+          storefront: "US",
+        }),
+      }),
+    onSuccess: async ({ data }) => {
+      await queryClient.invalidateQueries({ queryKey: ["projects"] });
+      setSelectedProjectId(data.id);
+      setPickerOpen(false);
+    },
+  });
 
   useEffect(() => {
     const handleKey = (event: KeyboardEvent) => {
@@ -133,18 +136,12 @@ export function AppShell() {
       <div className="workspace">
         <header className="utility-bar">
           <button type="button" className="app-selector" onClick={() => setPickerOpen(true)}>
-            <span className="app-icon">
-              {selectedApp.iconUrl ? (
-                <img src={selectedApp.iconUrl} alt="" />
-              ) : (
-                selectedApp.name.slice(0, 1)
-              )}
-            </span>
-            <span>{selectedApp.name}</span>
+            <span className="app-icon">{selectedProject.name.slice(0, 1)}</span>
+            <span>{selectedProject.name}</span>
             <ChevronDownIcon size={16} />
           </button>
           <button type="button" className="store-selector">
-            <span>US · App Store</span>
+            <span>{selectedProject.storefront} · App Store</span>
             <ChevronDownIcon size={16} />
           </button>
           <button type="button" className="command-trigger" onClick={() => setCommandOpen(true)}>
@@ -155,20 +152,24 @@ export function AppShell() {
             </kbd>
           </button>
           <button type="button" className="avatar" aria-label="Open account menu">
-            A
+            {user.username.slice(0, 1).toUpperCase()}
           </button>
         </header>
         <main id="main-content" className="content">
-          <Outlet />
+          {children}
         </main>
       </div>
       <CommandPalette open={commandOpen} onClose={() => setCommandOpen(false)} />
       <AppPickerDialog
         open={pickerOpen}
         onClose={() => setPickerOpen(false)}
-        onSelect={(app) => {
-          setSelectedApp(app);
-          localStorage.setItem("asopulse:selected-app:v1", JSON.stringify(app));
+        projects={projects}
+        currentProjectId={selectedProjectId}
+        creating={createProject.isPending}
+        onCreateProject={(app) => createProject.mutate(app)}
+        onSelectProject={(projectId) => {
+          setSelectedProjectId(projectId);
+          setPickerOpen(false);
         }}
       />
     </div>

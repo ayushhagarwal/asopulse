@@ -1,9 +1,10 @@
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { motion } from "motion/react";
-import { useDeferredValue, useState } from "react";
+import { useDeferredValue, useMemo, useState } from "react";
 import { CheckIcon, PlusIcon, SearchIcon } from "../../components/icons";
 import { keywordRows } from "../../data/fixtures";
 import { apiRequest } from "../../lib/api";
+import { useWorkspace } from "../../lib/workspace";
 
 type DiscoveryResponse = {
   data: {
@@ -17,22 +18,44 @@ type DiscoveryResponse = {
 };
 
 export function DiscoverPage() {
+  const { selectedProject } = useWorkspace();
+  const queryClient = useQueryClient();
   const [query, setQuery] = useState("journal");
   const [submittedQuery, setSubmittedQuery] = useState("");
   const deferredQuery = useDeferredValue(query);
-  const [tracked, setTracked] = useState(
-    () => new Set(keywordRows.filter((row) => row.tracked).map((row) => row.id)),
-  );
   const results = keywordRows.filter((row) => row.keyword.includes(deferredQuery.toLowerCase()));
+  const watchlist = useQuery({
+    queryKey: ["watchlist", selectedProject.id],
+    queryFn: () =>
+      apiRequest<{ data: Array<{ id: string; keyword: string }> }>(
+        `/projects/${selectedProject.id}/watchlist`,
+      ),
+    staleTime: 60_000,
+  });
   const discovery = useQuery({
-    queryKey: ["keyword-discovery", submittedQuery],
+    queryKey: ["keyword-discovery", selectedProject.id, submittedQuery],
     queryFn: () =>
       apiRequest<DiscoveryResponse>(
-        `/keywords/discover?term=${encodeURIComponent(submittedQuery)}&country=US`,
+        `/keywords/discover?term=${encodeURIComponent(submittedQuery)}&country=${selectedProject.storefront}&appId=${selectedProject.appId}`,
       ),
     enabled: submittedQuery.length >= 2,
     staleTime: 7 * 24 * 60 * 60 * 1000,
   });
+  const trackKeyword = useMutation({
+    mutationFn: (keyword: string) =>
+      apiRequest(`/projects/${selectedProject.id}/watchlist`, {
+        method: "POST",
+        body: JSON.stringify({ keyword }),
+      }),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["watchlist", selectedProject.id] });
+      await queryClient.invalidateQueries({ queryKey: ["pulse", selectedProject.id] });
+    },
+  });
+  const trackedKeywords = useMemo(
+    () => new Set((watchlist.data?.data ?? []).map((row) => row.keyword)),
+    [watchlist.data?.data],
+  );
 
   return (
     <motion.div className="page" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}>
@@ -111,7 +134,7 @@ export function DiscoverPage() {
         </div>
         <div className="keyword-list">
           {results.map((row, index) => {
-            const isTracked = tracked.has(row.id);
+            const isTracked = trackedKeywords.has(row.keyword);
             return (
               <motion.div
                 className="keyword-result"
@@ -146,14 +169,8 @@ export function DiscoverPage() {
                 <button
                   type="button"
                   className={isTracked ? "tracked-button" : "secondary-button"}
-                  onClick={() =>
-                    setTracked((current) => {
-                      const next = new Set(current);
-                      if (next.has(row.id)) next.delete(row.id);
-                      else next.add(row.id);
-                      return next;
-                    })
-                  }
+                  onClick={() => trackKeyword.mutate(row.keyword)}
+                  disabled={isTracked || trackKeyword.isPending}
                 >
                   {isTracked ? <CheckIcon size={16} /> : <PlusIcon size={16} />}
                   {isTracked ? "Tracking" : "Track"}

@@ -1,4 +1,4 @@
-import type { RankingSignal } from "./types";
+import type { RankingSignal } from "./types.js";
 
 export const RANK_CEILING = 200;
 

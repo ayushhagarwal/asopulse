@@ -1,4 +1,4 @@
-import type { KeywordScore, MetricProvenance, StoreApp } from "./types";
+import type { KeywordScore, MetricProvenance, StoreApp } from "./types.js";
 
 export const SCORING_METHOD_VERSION = "opportunity-1.0.0";
 

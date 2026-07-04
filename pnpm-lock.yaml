@@ -23,6 +23,12 @@ importers:
 
   apps/api:
     dependencies:
+      '@asopulse/core':
+        specifier: workspace:*
+        version: link:../../packages/core
+      '@asopulse/db':
+        specifier: workspace:*
+        version: link:../../packages/db
       '@asopulse/domain':
         specifier: workspace:*
         version: link:../../packages/domain
@@ -44,6 +50,9 @@ importers:
       argon2:
         specifier: ^0.44.0
         version: 0.44.0
+      drizzle-orm:
+        specifier: ^0.45.1
+        version: 0.45.2(postgres@3.4.9)
       fastify:
         specifier: ^5.7.4
         version: 5.9.0
@@ -112,6 +121,15 @@ importers:
 
   apps/worker:
     dependencies:
+      '@asopulse/core':
+        specifier: workspace:*
+        version: link:../../packages/core
+      '@asopulse/db':
+        specifier: workspace:*
+        version: link:../../packages/db
+      '@asopulse/providers':
+        specifier: workspace:*
+        version: link:../../packages/providers
       bullmq:
         specifier: ^5.70.1
         version: 5.79.2
@@ -119,6 +137,25 @@ importers:
       tsx:
         specifier: ^4.21.0
         version: 4.22.4
+      vitest:
+        specifier: ^4.1.9
+        version: 4.1.9(@types/node@24.13.2)(jsdom@28.1.0)(vite@7.3.6(@types/node@24.13.2)(terser@5.48.0)(tsx@4.22.4)(yaml@2.9.0))
+
+  packages/core:
+    dependencies:
+      '@asopulse/db':
+        specifier: workspace:*
+        version: link:../db
+      '@asopulse/domain':
+        specifier: workspace:*
+        version: link:../domain
+      '@asopulse/providers':
+        specifier: workspace:*
+        version: link:../providers
+      drizzle-orm:
+        specifier: ^0.45.1
+        version: 0.45.2(postgres@3.4.9)
+    devDependencies:
       vitest:
         specifier: ^4.1.9
         version: 4.1.9(@types/node@24.13.2)(jsdom@28.1.0)(vite@7.3.6(@types/node@24.13.2)(terser@5.48.0)(tsx@4.22.4)(yaml@2.9.0))

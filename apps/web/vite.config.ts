@@ -2,10 +2,13 @@ import react from "@vitejs/plugin-react";
 import { VitePWA } from "vite-plugin-pwa";
 import { defineConfig } from "vitest/config";
 
+const enablePwa = process.env.VITE_ENABLE_PWA === "true";
+
 export default defineConfig({
   plugins: [
     react(),
     VitePWA({
+      selfDestroying: !enablePwa,
       registerType: "autoUpdate",
       manifest: {
         name: "ASOpulse",
@@ -17,7 +20,17 @@ export default defineConfig({
         start_url: "/pulse",
         icons: [{ src: "/icon.svg", sizes: "any", type: "image/svg+xml", purpose: "any maskable" }],
       },
-      workbox: { navigateFallback: "/index.html", globPatterns: ["**/*.{js,css,html,svg,woff2}"] },
+      workbox: {
+        cleanupOutdatedCaches: true,
+        clientsClaim: true,
+        skipWaiting: true,
+        ...(enablePwa
+          ? {
+              navigateFallback: "/index.html",
+              globPatterns: ["**/*.{js,css,html,svg,woff2}"],
+            }
+          : {}),
+      },
     }),
   ],
   server: {

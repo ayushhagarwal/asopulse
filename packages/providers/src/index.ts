@@ -1,1 +1,1 @@
-export * from "./apple-search";
+export * from "./apple-search.js";

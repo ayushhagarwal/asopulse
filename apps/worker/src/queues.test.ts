@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { OBSERVATION_QUEUE } from "./queues";
+import { OBSERVATION_QUEUE } from "./queues.js";
 
 test("uses a stable observation queue name", () => {
   expect(OBSERVATION_QUEUE).toBe("asopulse-observations");

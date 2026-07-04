@@ -1,22 +1,114 @@
-import { randomBytes } from "node:crypto";
+import type { UserRecord } from "@asopulse/core";
+import { type createDatabase, users } from "@asopulse/db";
 import argon2 from "argon2";
-import type { FastifyInstance } from "fastify";
+import { eq } from "drizzle-orm";
+import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 
-const sessions = new Map<string, { username: string; expiresAt: number }>();
-let owner: { username: string; passwordHash: string } | undefined;
+type DatabaseClient = ReturnType<typeof createDatabase>["db"];
 
-export async function registerAuth(app: FastifyInstance) {
+export type AuthStore = {
+  createUser(input: { username: string; passwordHash: string }): Promise<UserRecord>;
+  findUserById(id: string): Promise<UserRecord | null>;
+  findUserByUsername(username: string): Promise<UserRecord | null>;
+  hasUsers(): Promise<boolean>;
+};
+
+const COOKIE_NAME = "asopulse_session";
+
+function sessionCookieOptions() {
+  return {
+    httpOnly: true,
+    sameSite: "strict" as const,
+    secure: process.env.NODE_ENV === "production",
+    path: "/",
+    maxAge: 7 * 24 * 60 * 60,
+    signed: true,
+  };
+}
+
+async function writeSession(reply: FastifyReply, userId: string) {
+  reply.setCookie(COOKIE_NAME, userId, sessionCookieOptions());
+}
+
+export function buildDatabaseAuthStore(database: DatabaseClient): AuthStore {
+  return {
+    async createUser(input) {
+      const [created] = await database.insert(users).values(input).returning();
+      if (!created) throw new Error("Unable to create owner");
+      return created;
+    },
+    async findUserById(id) {
+      const [user] = await database.select().from(users).where(eq(users.id, id)).limit(1);
+      return user ?? null;
+    },
+    async findUserByUsername(username) {
+      const [user] = await database
+        .select()
+        .from(users)
+        .where(eq(users.username, username))
+        .limit(1);
+      return user ?? null;
+    },
+    async hasUsers() {
+      const [user] = await database.select({ id: users.id }).from(users).limit(1);
+      return Boolean(user);
+    },
+  };
+}
+
+export async function readSessionUser(
+  request: FastifyRequest,
+  store: AuthStore,
+): Promise<UserRecord | null> {
+  const cookie = request.cookies[COOKIE_NAME];
+  if (!cookie) return null;
+  const unsigned = request.unsignCookie(cookie);
+  if (!unsigned.valid || !unsigned.value) return null;
+  return store.findUserById(unsigned.value);
+}
+
+export async function requireSessionUser(
+  request: FastifyRequest,
+  reply: FastifyReply,
+  store: AuthStore,
+): Promise<UserRecord | null> {
+  const user = await readSessionUser(request, store);
+  if (!user) {
+    await reply.code(401).send({ error: "Authentication required" });
+    return null;
+  }
+  return user;
+}
+
+export async function registerAuth(app: FastifyInstance, { store }: { store: AuthStore }) {
+  app.get("/api/v1/auth/session", async (request) => {
+    const user = await readSessionUser(request, store);
+    return {
+      configured: await store.hasUsers(),
+      authenticated: Boolean(user),
+      user: user ? { id: user.id, username: user.username } : null,
+    };
+  });
+
   app.post<{ Body: { username?: string; password?: string } }>(
     "/api/v1/auth/setup",
     async (request, reply) => {
-      if (owner) return reply.code(409).send({ error: "Owner already configured" });
+      if (await store.hasUsers())
+        return reply.code(409).send({ error: "Owner already configured" });
       const { username = "", password = "" } = request.body ?? {};
-      if (username.length < 2 || password.length < 10)
+      if (username.length < 2 || password.length < 10) {
         return reply
           .code(400)
           .send({ error: "Use a username and a password of at least 10 characters" });
-      owner = { username, passwordHash: await argon2.hash(password, { type: argon2.argon2id }) };
-      return reply.code(201).send({ configured: true });
+      }
+      const user = await store.createUser({
+        username,
+        passwordHash: await argon2.hash(password, { type: argon2.argon2id }),
+      });
+      await writeSession(reply, user.id);
+      return reply
+        .code(201)
+        .send({ configured: true, user: { id: user.id, username: user.username } });
     },
   );
 
@@ -24,29 +116,17 @@ export async function registerAuth(app: FastifyInstance) {
     "/api/v1/auth/login",
     async (request, reply) => {
       const { username = "", password = "" } = request.body ?? {};
-      if (
-        !owner ||
-        owner.username !== username ||
-        !(await argon2.verify(owner.passwordHash, password))
-      )
+      const user = await store.findUserByUsername(username);
+      if (!user || !(await argon2.verify(user.passwordHash, password))) {
         return reply.code(401).send({ error: "Invalid credentials" });
-      const token = randomBytes(32).toString("base64url");
-      sessions.set(token, { username, expiresAt: Date.now() + 7 * 24 * 60 * 60 * 1000 });
-      reply.setCookie("asopulse_session", token, {
-        httpOnly: true,
-        sameSite: "strict",
-        secure: process.env.NODE_ENV === "production",
-        path: "/",
-        maxAge: 7 * 24 * 60 * 60,
-      });
-      return { username };
+      }
+      await writeSession(reply, user.id);
+      return { user: { id: user.id, username: user.username } };
     },
   );
 
-  app.post("/api/v1/auth/logout", async (request, reply) => {
-    const token = request.cookies.asopulse_session;
-    if (token) sessions.delete(token);
-    reply.clearCookie("asopulse_session", { path: "/" });
+  app.post("/api/v1/auth/logout", async (_request, reply) => {
+    reply.clearCookie(COOKIE_NAME, { path: "/" });
     return { loggedOut: true };
   });
 }

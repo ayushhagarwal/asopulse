@@ -2,66 +2,60 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { motion } from "motion/react";
 import { useMemo, useState } from "react";
 import { CheckIcon, DownloadIcon, PlusIcon, SearchIcon } from "../../components/icons";
-import { keywordRows } from "../../data/fixtures";
 import { apiRequest } from "../../lib/api";
+import { useWorkspace } from "../../lib/workspace";
 
-type WatchlistItem = (typeof keywordRows)[number] & {
-  provenance?: { observedAt: string; confidence: string; methodVersion: string };
+type WatchlistItem = {
+  id: string;
+  keyword: string;
+  rank: number | null;
+  competition: number;
+  opportunity: number;
+  movement: number;
+  tags: string[];
 };
-type WatchlistResponse = { data: WatchlistItem[] };
-
-function downloadCsv() {
-  const header = "keyword,rank,competition,opportunity,movement,tags";
-  const body = keywordRows
-    .filter((row) => row.tracked)
-    .map((row) =>
-      [
-        row.keyword,
-        row.rank ?? ">200",
-        row.competition,
-        row.opportunity,
-        row.movement,
-        row.tags.join("|"),
-      ].join(","),
-    );
-  const url = URL.createObjectURL(new Blob([[header, ...body].join("\n")], { type: "text/csv" }));
-  const anchor = document.createElement("a");
-  anchor.href = url;
-  anchor.download = "asopulse-watchlist.csv";
-  anchor.click();
-  URL.revokeObjectURL(url);
-}
+type WatchlistResponse = { data: WatchlistItem[]; nextObservationAt: string | null };
 
 export function WatchlistPage() {
+  const { selectedProject } = useWorkspace();
   const [query, setQuery] = useState("");
   const [period, setPeriod] = useState("7D");
   const [adding, setAdding] = useState(false);
   const [newKeyword, setNewKeyword] = useState("");
   const queryClient = useQueryClient();
   const watchlist = useQuery({
-    queryKey: ["watchlist"],
-    queryFn: () => apiRequest<WatchlistResponse>("/projects/demo/watchlist"),
-    initialData: { data: keywordRows.filter((row) => row.tracked) },
+    queryKey: ["watchlist", selectedProject.id],
+    queryFn: () => apiRequest<WatchlistResponse>(`/projects/${selectedProject.id}/watchlist`),
     staleTime: 60_000,
   });
   const addKeyword = useMutation({
     mutationFn: (keyword: string) =>
-      apiRequest<{ data: WatchlistItem }>("/projects/demo/watchlist", {
+      apiRequest<{ data: WatchlistItem }>(`/projects/${selectedProject.id}/watchlist`, {
         method: "POST",
-        body: JSON.stringify({ keyword, country: "US", appId: "demo-clarity" }),
+        body: JSON.stringify({ keyword }),
       }),
     onSuccess: ({ data }) => {
-      queryClient.setQueryData<WatchlistResponse>(["watchlist"], (current) => ({
+      queryClient.setQueryData<WatchlistResponse>(["watchlist", selectedProject.id], (current) => ({
         data: [...(current?.data ?? []), data],
+        nextObservationAt: current?.nextObservationAt ?? null,
       }));
+      queryClient.invalidateQueries({ queryKey: ["pulse", selectedProject.id] });
       setNewKeyword("");
       setAdding(false);
     },
   });
   const rows = useMemo(
-    () => watchlist.data.data.filter((row) => row.keyword.includes(query.toLowerCase())),
-    [query, watchlist.data.data],
+    () => (watchlist.data?.data ?? []).filter((row) => row.keyword.includes(query.toLowerCase())),
+    [query, watchlist.data?.data],
   );
+
+  function downloadCsv() {
+    const anchor = document.createElement("a");
+    anchor.href = `/api/v1/projects/${selectedProject.id}/export.csv`;
+    anchor.download = "asopulse-watchlist.csv";
+    anchor.click();
+  }
+
   return (
     <motion.div className="page" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}>
       <div className="page-intro compact">
@@ -134,37 +128,45 @@ export function WatchlistPage() {
             </button>
           ))}
         </div>
-        <span>Next observation · tomorrow at 6:00</span>
+        <span>
+          {watchlist.data?.nextObservationAt
+            ? `Next observation · ${new Date(watchlist.data.nextObservationAt).toLocaleString()}`
+            : "Next observation follows your daily schedule"}
+        </span>
       </div>
-      <div className="watchlist-table">
-        <div className="watchlist-head">
-          <span>Keyword</span>
-          <span>Rank</span>
-          <span>{period} movement</span>
-          <span>Opportunity</span>
-          <span>Tag</span>
+      {rows.length === 0 ? (
+        <div className="empty-table">Add a keyword to begin your persistent watchlist.</div>
+      ) : (
+        <div className="watchlist-table">
+          <div className="watchlist-head">
+            <span>Keyword</span>
+            <span>Rank</span>
+            <span>{period} movement</span>
+            <span>Opportunity</span>
+            <span>Tag</span>
+          </div>
+          {rows.map((row, index) => (
+            <motion.div
+              className="watchlist-row"
+              key={row.id}
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ delay: index * 0.04 }}
+            >
+              <div>
+                <strong>{row.keyword}</strong>
+                <small>{selectedProject.storefront} · App Store</small>
+              </div>
+              <strong className="rank-number">{row.rank ?? ">200"}</strong>
+              <span className={row.movement > 0 ? "positive" : row.movement < 0 ? "negative" : ""}>
+                {row.movement > 0 ? "↑" : row.movement < 0 ? "↓" : "→"} {Math.abs(row.movement)}
+              </span>
+              <span>{row.opportunity}</span>
+              <span className="plain-tag">{row.tags[0] ?? "untagged"}</span>
+            </motion.div>
+          ))}
         </div>
-        {rows.map((row, index) => (
-          <motion.div
-            className="watchlist-row"
-            key={row.id}
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            transition={{ delay: index * 0.04 }}
-          >
-            <div>
-              <strong>{row.keyword}</strong>
-              <small>US · App Store</small>
-            </div>
-            <strong className="rank-number">{row.rank ?? ">200"}</strong>
-            <span className={row.movement > 0 ? "positive" : "negative"}>
-              {row.movement > 0 ? "↑" : "↓"} {Math.abs(row.movement)}
-            </span>
-            <span>{row.opportunity}</span>
-            <span className="plain-tag">{row.tags[0]}</span>
-          </motion.div>
-        ))}
-      </div>
+      )}
     </motion.div>
   );
 }

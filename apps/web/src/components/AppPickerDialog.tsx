@@ -2,19 +2,36 @@ import { useQuery } from "@tanstack/react-query";
 import { AnimatePresence, motion } from "motion/react";
 import { useState } from "react";
 import { apiRequest } from "../lib/api";
+import type { WorkspaceProject } from "../lib/workspace";
 import { CloseIcon, SearchIcon } from "./icons";
 
-export type SelectedApp = { appId: string; name: string; developer: string; iconUrl: string };
-type SearchResponse = { data: Array<SelectedApp & { averageRating: number; ratingCount: number }> };
+export type SearchResult = {
+  appId: string;
+  name: string;
+  developer: string;
+  iconUrl: string;
+  averageRating: number;
+  ratingCount: number;
+};
+
+type SearchResponse = { data: SearchResult[] };
 
 export function AppPickerDialog({
   open,
   onClose,
-  onSelect,
+  projects,
+  currentProjectId,
+  creating,
+  onCreateProject,
+  onSelectProject,
 }: {
   open: boolean;
   onClose: () => void;
-  onSelect: (app: SelectedApp) => void;
+  projects: WorkspaceProject[];
+  currentProjectId: string;
+  creating: boolean;
+  onCreateProject: (app: SearchResult) => void;
+  onSelectProject: (projectId: string) => void;
 }) {
   const [input, setInput] = useState("");
   const [term, setTerm] = useState("");
@@ -49,8 +66,8 @@ export function AppPickerDialog({
           >
             <div className="picker-heading">
               <div>
-                <h2>Choose your app</h2>
-                <p>Search the US App Store. You can change storefronts later.</p>
+                <h2>Switch workspace</h2>
+                <p>Select an existing project or search the US App Store to create another one.</p>
               </div>
               <button
                 type="button"
@@ -60,6 +77,25 @@ export function AppPickerDialog({
               >
                 <CloseIcon />
               </button>
+            </div>
+            <div className="existing-projects">
+              {projects.map((project) => (
+                <button
+                  type="button"
+                  key={project.id}
+                  className={`app-result existing-project ${currentProjectId === project.id ? "is-current" : ""}`}
+                  onClick={() => onSelectProject(project.id)}
+                >
+                  <span className="result-icon">{project.name.slice(0, 1)}</span>
+                  <span>
+                    <strong>{project.name}</strong>
+                    <small>{project.storefront} · App Store</small>
+                  </span>
+                  <span>
+                    <small>{currentProjectId === project.id ? "Current workspace" : "Open"}</small>
+                  </span>
+                </button>
+              ))}
             </div>
             <form
               className="picker-search"
@@ -72,29 +108,13 @@ export function AppPickerDialog({
               <input
                 value={input}
                 onChange={(event) => setInput(event.target.value)}
-                placeholder="App name or developer"
+                placeholder="Search App Store to create a workspace"
               />
               <button className="primary-button" type="submit">
                 Search
               </button>
             </form>
             <div className="picker-results" aria-live="polite">
-              <button
-                type="button"
-                className="demo-app-result"
-                onClick={() => {
-                  onSelect({
-                    appId: "demo-clarity",
-                    name: "Clarity — Daily Journal",
-                    developer: "ASOpulse Demo",
-                    iconUrl: "",
-                  });
-                  onClose();
-                }}
-              >
-                <span>Use demo workspace</span>
-                <small>Restore the polished sample project</small>
-              </button>
               {search.isFetching ? (
                 <div className="picker-message">
                   <i /> Searching the store…
@@ -107,17 +127,17 @@ export function AppPickerDialog({
                 </div>
               ) : null}
               {!search.isFetching && !search.isError && term.length === 0 ? (
-                <div className="picker-message">Search for the app you want to monitor.</div>
+                <div className="picker-message">
+                  Search for another app when you’re ready to add a workspace.
+                </div>
               ) : null}
               {search.data?.data.map((app) => (
                 <button
                   type="button"
                   key={app.appId}
                   className="app-result"
-                  onClick={() => {
-                    onSelect(app);
-                    onClose();
-                  }}
+                  onClick={() => onCreateProject(app)}
+                  disabled={creating}
                 >
                   <span className="result-icon">
                     {app.iconUrl ? <img src={app.iconUrl} alt="" /> : app.name.slice(0, 1)}
@@ -127,8 +147,14 @@ export function AppPickerDialog({
                     <small>{app.developer}</small>
                   </span>
                   <span>
-                    <strong>{app.averageRating.toFixed(1)}</strong>
-                    <small>{app.ratingCount.toLocaleString()} ratings</small>
+                    {creating ? (
+                      <small>Creating…</small>
+                    ) : (
+                      <>
+                        <strong>{app.averageRating.toFixed(1)}</strong>
+                        <small>{app.ratingCount.toLocaleString()} ratings</small>
+                      </>
+                    )}
                   </span>
                 </button>
               ))}

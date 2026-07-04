@@ -1,8 +1,9 @@
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { motion } from "motion/react";
 import { useState } from "react";
 import { CheckIcon, DownloadIcon } from "../../components/icons";
 import { apiRequest } from "../../lib/api";
+import { useWorkspace } from "../../lib/workspace";
 
 type Diagnostics = {
   api: string;
@@ -12,14 +13,9 @@ type Diagnostics = {
   lastObservationAt: string;
 };
 
-function downloadBackup() {
-  const anchor = document.createElement("a");
-  anchor.href = "/api/v1/projects/demo/backup";
-  anchor.download = "asopulse-backup.json";
-  anchor.click();
-}
-
 export function SettingsPage() {
+  const { selectedProject } = useWorkspace();
+  const queryClient = useQueryClient();
   const [saved, setSaved] = useState(false);
   const [retention, setRetention] = useState("forever");
   const [importMessage, setImportMessage] = useState("");
@@ -29,6 +25,20 @@ export function SettingsPage() {
     retry: false,
     refetchInterval: 30_000,
   });
+  const logout = useMutation({
+    mutationFn: () => apiRequest<{ loggedOut: true }>("/auth/logout", { method: "POST" }),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["session"] });
+    },
+  });
+
+  function downloadBackup() {
+    const anchor = document.createElement("a");
+    anchor.href = `/api/v1/projects/${selectedProject.id}/backup`;
+    anchor.download = `${selectedProject.name.toLowerCase().replaceAll(/\s+/g, "-")}-backup.json`;
+    anchor.click();
+  }
+
   return (
     <motion.div
       className="page settings-page"
@@ -114,11 +124,22 @@ export function SettingsPage() {
                   if (!file) return;
                   try {
                     const backup = JSON.parse(await file.text()) as unknown;
-                    const result = await apiRequest<{ importedKeywords: number }>(
-                      "/projects/import",
-                      { method: "POST", body: JSON.stringify(backup) },
+                    const result = await apiRequest<{
+                      importedKeywords: number;
+                      importedObservations: number;
+                    }>(`/projects/${selectedProject.id}/restore`, {
+                      method: "POST",
+                      body: JSON.stringify(backup),
+                    });
+                    await queryClient.invalidateQueries({
+                      queryKey: ["watchlist", selectedProject.id],
+                    });
+                    await queryClient.invalidateQueries({
+                      queryKey: ["pulse", selectedProject.id],
+                    });
+                    setImportMessage(
+                      `${result.importedKeywords} keywords and ${result.importedObservations} observations restored.`,
                     );
-                    setImportMessage(`${result.importedKeywords} keywords validated for import.`);
                   } catch {
                     setImportMessage("That file is not a valid ASOpulse backup.");
                   }
@@ -140,6 +161,20 @@ export function SettingsPage() {
           <span className="health">
             <i /> {diagnostics.isError ? "API currently offline" : "All systems calm"}
           </span>
+        </section>
+        <section className="settings-section">
+          <div>
+            <h2>Session</h2>
+            <p>Log out of the current owner workspace.</p>
+          </div>
+          <button
+            type="button"
+            className="secondary-button"
+            onClick={() => logout.mutate()}
+            disabled={logout.isPending}
+          >
+            {logout.isPending ? "Signing out…" : "Sign out"}
+          </button>
         </section>
         <div className="settings-submit">
           <button className="primary-button" type="submit">

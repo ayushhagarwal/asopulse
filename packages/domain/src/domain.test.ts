@@ -6,7 +6,7 @@ import {
   type StoreApp,
   scoreKeyword,
   toCsv,
-} from "./index";
+} from "./index.js";
 
 const app = (id: string, title: string, ratingCount: number): StoreApp => ({
   appId: id,

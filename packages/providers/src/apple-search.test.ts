@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { AppleSearchProvider } from "./apple-search";
+import { AppleSearchProvider } from "./apple-search.js";
 
 describe("AppleSearchProvider", () => {
   test("normalizes Apple payloads and reuses the cache", async () => {

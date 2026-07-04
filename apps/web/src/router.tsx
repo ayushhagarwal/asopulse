@@ -5,14 +5,14 @@ import {
   lazyRouteComponent,
   Outlet,
 } from "@tanstack/react-router";
-import { AppShell } from "./components/AppShell";
+import { WorkspaceGate } from "./components/WorkspaceGate";
 
 const rootRoute = createRootRoute({ component: () => <Outlet /> });
 
 const appRoute = createRoute({
   getParentRoute: () => rootRoute,
   id: "app",
-  component: AppShell,
+  component: WorkspaceGate,
 });
 
 const indexRoute = createRoute({

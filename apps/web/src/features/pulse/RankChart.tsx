@@ -1,31 +1,59 @@
 import { motion } from "motion/react";
-import { useState } from "react";
-import { chartSeries } from "../../data/fixtures";
+import { useEffect, useState } from "react";
 
-const dates = ["Jun 26", "Jun 27", "Jun 28", "Jun 29", "Jun 30", "Jul 1", "Jul 2"];
 const chart = { width: 760, height: 255, top: 18, bottom: 34, left: 34, right: 18 };
 
-function point(index: number, rank: number) {
+function point(index: number, rank: number, steps: number) {
   const usableWidth = chart.width - chart.left - chart.right;
   const usableHeight = chart.height - chart.top - chart.bottom;
   return {
-    x: chart.left + (index * usableWidth) / 6,
+    x: chart.left + (index * usableWidth) / Math.max(1, steps - 1),
     y: chart.top + ((rank - 1) / 49) * usableHeight,
   };
 }
 
-function pathFor(values: number[]) {
-  return values
+function pathFor(values: Array<number | null>) {
+  const points = values.flatMap((value, index) =>
+    typeof value === "number" ? [{ value, index }] : [],
+  );
+  return points
     .map((value, index) => {
-      const p = point(index, value);
+      const p = point(value.index, value.value, values.length);
       return `${index === 0 ? "M" : "L"}${p.x},${p.y}`;
     })
     .join(" ");
 }
 
-export function RankChart() {
-  const [activeIndex, setActiveIndex] = useState(6);
-  const active = point(activeIndex, chartSeries[0]?.values[activeIndex] ?? 12);
+export function RankChart({
+  series,
+  timeline,
+}: {
+  series: Array<{ keyword: string; color: string; values: Array<number | null> }>;
+  timeline: Array<{ label: string; observedAt: string }>;
+}) {
+  const [activeIndex, setActiveIndex] = useState(Math.max(0, timeline.length - 1));
+
+  useEffect(() => {
+    setActiveIndex(Math.max(0, timeline.length - 1));
+  }, [timeline.length]);
+
+  if (timeline.length === 0 || series.length === 0) {
+    return (
+      <section className="rank-chart" aria-labelledby="momentum-heading">
+        <div className="section-heading-row">
+          <div>
+            <h2 id="momentum-heading">Keyword momentum</h2>
+            <p>Observed positions · lower is better</p>
+          </div>
+        </div>
+        <div className="empty-chart">Momentum will appear after repeated daily observations.</div>
+      </section>
+    );
+  }
+
+  const leadSeries = series[0];
+  const activeValue = leadSeries?.values[activeIndex] ?? 12;
+  const active = point(activeIndex, activeValue ?? 12, timeline.length);
 
   return (
     <section className="rank-chart" aria-labelledby="momentum-heading">
@@ -44,10 +72,10 @@ export function RankChart() {
         </fieldset>
       </div>
       <div className="chart-legend">
-        {chartSeries.map((series) => (
-          <span key={series.name}>
-            <i style={{ backgroundColor: series.color }} />
-            {series.name}
+        {series.map((item) => (
+          <span key={item.keyword}>
+            <i style={{ backgroundColor: item.color }} />
+            {item.keyword}
           </span>
         ))}
       </div>
@@ -58,7 +86,7 @@ export function RankChart() {
           aria-label="Seven day rank history for three keywords"
         >
           {[1, 10, 20, 30, 40, 50].map((rank) => {
-            const y = point(0, rank).y;
+            const y = point(0, rank, timeline.length).y;
             return (
               <g key={rank}>
                 <line
@@ -74,26 +102,28 @@ export function RankChart() {
               </g>
             );
           })}
-          {dates.map((date, index) => {
-            const x = point(index, 50).x;
+          {timeline.map((date, index) => {
+            const x = point(index, 50, timeline.length).x;
             return (
               <text
-                key={date}
+                key={date.observedAt}
                 className="axis-label date-label"
                 x={x}
                 y={chart.height - 5}
-                textAnchor={index === 0 ? "start" : index === 6 ? "end" : "middle"}
+                textAnchor={
+                  index === 0 ? "start" : index === timeline.length - 1 ? "end" : "middle"
+                }
               >
-                {date}
+                {date.label}
               </text>
             );
           })}
-          {chartSeries.map((series) => (
+          {series.map((item) => (
             <motion.path
-              key={series.name}
-              d={pathFor(series.values)}
+              key={item.keyword}
+              d={pathFor(item.values)}
               fill="none"
-              stroke={series.color}
+              stroke={item.color}
               strokeWidth="2"
               strokeLinecap="round"
               initial={{ pathLength: 0, opacity: 0 }}
@@ -125,11 +155,11 @@ export function RankChart() {
             fill="#0f6b35"
             animate={{ cx: active.x, cy: active.y }}
           />
-          {dates.map((date, index) => {
-            const x = point(index, 50).x;
+          {timeline.map((date, index) => {
+            const x = point(index, 50, timeline.length).x;
             return (
               <rect
-                key={date}
+                key={date.observedAt}
                 x={x - 42}
                 y={0}
                 width="84"
@@ -148,9 +178,9 @@ export function RankChart() {
           }}
           transition={{ type: "spring", stiffness: 420, damping: 32 }}
         >
-          <span>daily journal</span>
-          <strong>#{chartSeries[0]?.values[activeIndex]}</strong>
-          <em>+8</em>
+          <span>{leadSeries?.keyword}</span>
+          <strong>{activeValue ? `#${activeValue}` : ">200"}</strong>
+          <em>{timeline[activeIndex]?.label}</em>
         </motion.div>
       </div>
     </section>
