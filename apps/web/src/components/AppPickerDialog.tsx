@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { AnimatePresence, motion } from "motion/react";
 import { useState } from "react";
 import { apiRequest } from "../lib/api";
+import { STOREFRONTS, type StorefrontCode, storefrontName } from "../lib/storefronts";
 import type { WorkspaceProject } from "../lib/workspace";
 import { CloseIcon, SearchIcon } from "./icons";
 
@@ -13,6 +14,8 @@ export type SearchResult = {
   averageRating: number;
   ratingCount: number;
 };
+
+export type ProjectSelection = { app: SearchResult; storefront: StorefrontCode };
 
 type SearchResponse = { data: SearchResult[] };
 
@@ -30,15 +33,18 @@ export function AppPickerDialog({
   projects: WorkspaceProject[];
   currentProjectId: string;
   creating: boolean;
-  onCreateProject: (app: SearchResult) => void;
+  onCreateProject: (selection: ProjectSelection) => void;
   onSelectProject: (projectId: string) => void;
 }) {
   const [input, setInput] = useState("");
   const [term, setTerm] = useState("");
+  const [storefront, setStorefront] = useState<StorefrontCode>("US");
   const search = useQuery({
-    queryKey: ["app-search", term],
+    queryKey: ["app-search", term, storefront],
     queryFn: () =>
-      apiRequest<SearchResponse>(`/apps/search?term=${encodeURIComponent(term)}&country=US`),
+      apiRequest<SearchResponse>(
+        `/apps/search?term=${encodeURIComponent(term)}&country=${storefront}`,
+      ),
     enabled: term.length >= 2,
     staleTime: 7 * 24 * 60 * 60 * 1000,
   });
@@ -67,7 +73,7 @@ export function AppPickerDialog({
             <div className="picker-heading">
               <div>
                 <h2>Switch workspace</h2>
-                <p>Select an existing project or search the US App Store to create another one.</p>
+                <p>Select a workspace or search another App Store market.</p>
               </div>
               <button
                 type="button"
@@ -89,7 +95,7 @@ export function AppPickerDialog({
                   <span className="result-icon">{project.name.slice(0, 1)}</span>
                   <span>
                     <strong>{project.name}</strong>
-                    <small>{project.storefront} · App Store</small>
+                    <small>{storefrontName(project.storefront)} · App Store</small>
                   </span>
                   <span>
                     <small>{currentProjectId === project.id ? "Current workspace" : "Open"}</small>
@@ -104,6 +110,19 @@ export function AppPickerDialog({
                 setTerm(input.trim());
               }}
             >
+              <label className="storefront-field">
+                <span className="sr-only">App Store market</span>
+                <select
+                  value={storefront}
+                  onChange={(event) => setStorefront(event.target.value as StorefrontCode)}
+                >
+                  {STOREFRONTS.map((market) => (
+                    <option key={market.code} value={market.code}>
+                      {market.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
               <SearchIcon />
               <input
                 value={input}
@@ -136,7 +155,7 @@ export function AppPickerDialog({
                   type="button"
                   key={app.appId}
                   className="app-result"
-                  onClick={() => onCreateProject(app)}
+                  onClick={() => onCreateProject({ app, storefront })}
                   disabled={creating}
                 >
                   <span className="result-icon">

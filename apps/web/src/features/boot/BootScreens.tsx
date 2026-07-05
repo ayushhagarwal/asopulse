@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { CheckIcon, SearchIcon } from "../../components/icons";
 import { Logo } from "../../components/Logo";
 import { apiRequest } from "../../lib/api";
+import { STOREFRONTS, type StorefrontCode, storefrontName } from "../../lib/storefronts";
 
 type SearchResult = {
   appId: string;
@@ -163,6 +164,7 @@ export function ProjectOnboardingPage() {
   const queryClient = useQueryClient();
   const [input, setInput] = useState("");
   const [term, setTerm] = useState("");
+  const [storefront, setStorefront] = useState<StorefrontCode>("US");
 
   useEffect(() => {
     const normalized = input.trim();
@@ -174,9 +176,11 @@ export function ProjectOnboardingPage() {
   }, [input]);
 
   const search = useQuery({
-    queryKey: ["bootstrap-app-search", term],
+    queryKey: ["bootstrap-app-search", term, storefront],
     queryFn: () =>
-      apiRequest<AppSearchResponse>(`/apps/search?term=${encodeURIComponent(term)}&country=US`),
+      apiRequest<AppSearchResponse>(
+        `/apps/search?term=${encodeURIComponent(term)}&country=${storefront}`,
+      ),
     enabled: term.length >= 2,
     staleTime: 7 * 24 * 60 * 60 * 1000,
   });
@@ -188,7 +192,7 @@ export function ProjectOnboardingPage() {
           name: app.name,
           appId: app.appId,
           appName: app.name,
-          storefront: "US",
+          storefront,
         }),
       }),
     onSuccess: async () => {
@@ -206,8 +210,21 @@ export function ProjectOnboardingPage() {
         <Logo />
         <div className="boot-copy">
           <h1>Choose the app you want to monitor.</h1>
-          <p>Search the US App Store and create your first ASOpulse workspace.</p>
+          <p>Search {storefrontName(storefront)} and create your first ASOpulse workspace.</p>
         </div>
+        <label className="boot-storefront-field">
+          <span>App Store market</span>
+          <select
+            value={storefront}
+            onChange={(event) => setStorefront(event.target.value as StorefrontCode)}
+          >
+            {STOREFRONTS.map((market) => (
+              <option key={market.code} value={market.code}>
+                {market.name}
+              </option>
+            ))}
+          </select>
+        </label>
         <form
           className="hero-search boot-search"
           onSubmit={(event) => {
