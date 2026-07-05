@@ -895,12 +895,59 @@ kbd {
 }
 .picker-search {
   display: grid;
-  grid-template-columns: 22px 1fr auto;
+  grid-template-columns: 150px 22px minmax(0, 1fr) auto;
   align-items: center;
   gap: 11px;
   margin: 0 26px 15px;
   padding: 0 0 14px;
   border-bottom: 1px solid #aac8b4;
+}
+
+.storefront-field select,
+.boot-storefront-field select {
+  appearance: none;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #fff;
+  color: var(--forest);
+  font: inherit;
+  cursor: pointer;
+}
+
+.storefront-field select {
+  width: 150px;
+  height: 42px;
+  padding: 0 32px 0 12px;
+  background-image:
+    linear-gradient(45deg, transparent 50%, var(--ink-faint) 50%),
+    linear-gradient(135deg, var(--ink-faint) 50%, transparent 50%);
+  background-position:
+    calc(100% - 16px) 18px,
+    calc(100% - 11px) 18px;
+  background-size:
+    5px 5px,
+    5px 5px;
+  background-repeat: no-repeat;
+}
+
+.boot-storefront-field {
+  display: grid;
+  gap: 8px;
+  color: var(--ink-soft);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.boot-storefront-field select {
+  width: 100%;
+  min-height: 48px;
+  padding: 0 14px;
+}
+
+.storefront-field select:focus-visible,
+.boot-storefront-field select:focus-visible {
+  outline: 2px solid var(--mint-strong);
+  outline-offset: 2px;
 }
 .picker-search input {
   border: 0;
@@ -1424,6 +1471,15 @@ kbd {
 }
 
 @media (max-width: 760px) {
+  .picker-search {
+    grid-template-columns: 22px minmax(0, 1fr) auto;
+  }
+  .picker-search .storefront-field {
+    grid-column: 1 / -1;
+  }
+  .storefront-field select {
+    width: 100%;
+  }
   .app-shell {
     display: block;
   }

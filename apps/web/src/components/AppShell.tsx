@@ -3,8 +3,9 @@ import { Link, useRouterState } from "@tanstack/react-router";
 import { AnimatePresence, motion } from "motion/react";
 import { type ReactNode, useEffect, useState } from "react";
 import { apiRequest } from "../lib/api";
+import { storefrontName } from "../lib/storefronts";
 import { useWorkspace } from "../lib/workspace";
-import { AppPickerDialog, type SearchResult } from "./AppPickerDialog";
+import { AppPickerDialog, type ProjectSelection } from "./AppPickerDialog";
 import { CommandPalette } from "./CommandPalette";
 import {
   BookmarkIcon,
@@ -34,14 +35,14 @@ export function AppShell({ children }: { children: ReactNode }) {
   const queryClient = useQueryClient();
   const pathname = useRouterState({ select: (state) => state.location.pathname });
   const createProject = useMutation({
-    mutationFn: (app: SearchResult) =>
+    mutationFn: ({ app, storefront }: ProjectSelection) =>
       apiRequest<{ data: { id: string } }>("/projects", {
         method: "POST",
         body: JSON.stringify({
           name: app.name,
           appId: app.appId,
           appName: app.name,
-          storefront: "US",
+          storefront,
         }),
       }),
     onSuccess: async ({ data }) => {
@@ -140,8 +141,8 @@ export function AppShell({ children }: { children: ReactNode }) {
             <span>{selectedProject.name}</span>
             <ChevronDownIcon size={16} />
           </button>
-          <button type="button" className="store-selector">
-            <span>{selectedProject.storefront} · App Store</span>
+          <button type="button" className="store-selector" onClick={() => setPickerOpen(true)}>
+            <span>{storefrontName(selectedProject.storefront)} · App Store</span>
             <ChevronDownIcon size={16} />
           </button>
           <button type="button" className="command-trigger" onClick={() => setCommandOpen(true)}>
@@ -166,7 +167,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         projects={projects}
         currentProjectId={selectedProjectId}
         creating={createProject.isPending}
-        onCreateProject={(app) => createProject.mutate(app)}
+        onCreateProject={(selection) => createProject.mutate(selection)}
         onSelectProject={(projectId) => {
           setSelectedProjectId(projectId);
           setPickerOpen(false);
