@@ -5,7 +5,8 @@ describe("storefront catalog", () => {
   it("includes the primary ASO markets", () => {
     const codes = new Set(STOREFRONTS.map(({ code }) => code));
 
-    for (const code of ["US", "JP", "ES", "FR", "DE", "KR", "BR", "TR"]) {
+    const primaryMarkets = ["US", "JP", "ES", "FR", "DE", "KR", "BR", "TR"] as const;
+    for (const code of primaryMarkets) {
       expect(codes.has(code)).toBe(true);
     }
   });
