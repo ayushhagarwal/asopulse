@@ -56,6 +56,18 @@ test("renders the Pulse workspace", async () => {
             movement: 4,
             tags: ["core"],
             tracked: true,
+            provenance: {
+              observedAt: "2026-07-04T06:00:00.000Z",
+              confidence: "high",
+              methodVersion: "opportunity-1.0.0",
+            },
+            sparkline: [
+              { date: "2026-07-01", rank: 18, observed: true },
+              { date: "2026-07-02", rank: 16, observed: true },
+              { date: "2026-07-03", rank: 14, observed: true },
+              { date: "2026-07-04", rank: 12, observed: true },
+            ],
+            refreshState: "fresh",
           },
         ],
         signals: [],
@@ -78,8 +90,6 @@ test("renders the Pulse workspace", async () => {
       <RouterProvider router={router} />
     </QueryClientProvider>,
   );
-  expect(
-    await screen.findByRole("heading", { name: "Your market, in motion." }),
-  ).toBeInTheDocument();
-  expect(screen.getByRole("heading", { name: "Opportunity field" })).toBeInTheDocument();
+  expect(await screen.findByRole("heading", { name: "Pulse" })).toBeInTheDocument();
+  expect(await screen.findByRole("heading", { name: "Top movers" })).toBeInTheDocument();
 });

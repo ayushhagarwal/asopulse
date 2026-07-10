@@ -1,34 +1,27 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link } from "@tanstack/react-router";
+import { Link, useNavigate } from "@tanstack/react-router";
 import { motion } from "motion/react";
-import { useEffect, useState } from "react";
-import { ArrowDownIcon, ArrowUpIcon, PlusIcon } from "../../components/icons";
+import { useState } from "react";
+import { ArrowDownIcon, ArrowUpIcon, PlusIcon, RefreshIcon } from "../../components/icons";
 import { KeywordComposerDialog } from "../../components/KeywordComposerDialog";
 import { apiRequest } from "../../lib/api";
 import { parseKeywordInput } from "../../lib/keywords";
 import { useWorkspace } from "../../lib/workspace";
-import { OpportunityTable } from "./OpportunityTable";
-import { RankChart } from "./RankChart";
+import { RankSparkline } from "../watchlist/RankSparkline";
 
 type PulseResponse = {
-  project: {
-    id: string;
-    name: string;
-    appId: string;
-    appName: string;
-    storefront: string;
-    createdAt: string;
-  };
+  project: { id: string; name: string; storefront: string };
   keywords: Array<{
     id: string;
     keyword: string;
     rank: number | null;
     competition: number;
     opportunity: number;
-    resultCount: number;
-    movement: number;
+    movement: number | null;
     tags: string[];
-    tracked: true;
+    provenance: { observedAt: string; confidence: string; methodVersion: string };
+    sparkline: Array<{ date: string; rank: number | null; observed: boolean }>;
+    refreshState: "pending" | "fresh";
   }>;
   signals: Array<{
     id: string;
@@ -39,191 +32,238 @@ type PulseResponse = {
     movement: number;
     createdAt: string;
   }>;
-  series: Array<{ keyword: string; color: string; values: Array<number | null> }>;
-  timeline: Array<{ label: string; observedAt: string }>;
   nextObservationAt: string | null;
 };
+
+function relativeTime(value?: string) {
+  if (!value) return "No observations yet";
+  const minutes = Math.max(0, Math.round((Date.now() - new Date(value).getTime()) / 60_000));
+  if (minutes < 1) return "just now";
+  if (minutes < 60) return `${minutes}m ago`;
+  if (minutes < 1_440) return `${Math.round(minutes / 60)}h ago`;
+  return new Date(value).toLocaleDateString();
+}
 
 export function PulsePage() {
   const { selectedProject } = useWorkspace();
   const queryClient = useQueryClient();
-  const [graphVisible, setGraphVisible] = useState(() => {
-    if (typeof window === "undefined") return true;
-    return window.localStorage.getItem("asopulse:pulse-graph") !== "hidden";
-  });
+  const navigate = useNavigate();
   const [composerOpen, setComposerOpen] = useState(false);
   const pulse = useQuery({
     queryKey: ["pulse", selectedProject.id],
     queryFn: () => apiRequest<PulseResponse>(`/projects/${selectedProject.id}/pulse`),
   });
-
-  useEffect(() => {
-    if (typeof window !== "undefined") {
-      window.localStorage.setItem("asopulse:pulse-graph", graphVisible ? "shown" : "hidden");
-    }
-  }, [graphVisible]);
+  const refresh = useMutation({
+    mutationFn: () =>
+      apiRequest(`/projects/${selectedProject.id}/observation-runs`, {
+        method: "POST",
+        body: JSON.stringify({}),
+      }),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["observation-run", selectedProject.id] });
+    },
+  });
+  const addKeywords = useMutation({
+    mutationFn: (input: string) => {
+      const keywords = parseKeywordInput(input);
+      if (keywords.length === 0) throw new Error("Add at least one keyword");
+      return apiRequest(`/projects/${selectedProject.id}/watchlist/batch`, {
+        method: "POST",
+        body: JSON.stringify({ keywords }),
+      });
+    },
+    onSuccess: async () => {
+      setComposerOpen(false);
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["pulse", selectedProject.id] }),
+        queryClient.invalidateQueries({ queryKey: ["watchlist", selectedProject.id] }),
+      ]);
+    },
+  });
 
   const keywords = pulse.data?.keywords ?? [];
   const signals = pulse.data?.signals ?? [];
-  const addKeywords = useMutation({
-    mutationFn: async (keywordInput: string) => {
-      const keywordsToAdd = parseKeywordInput(keywordInput);
-      if (keywordsToAdd.length === 0) {
-        throw new Error("Add at least one keyword");
-      }
-
-      for (const keyword of keywordsToAdd) {
-        await apiRequest(`/projects/${selectedProject.id}/watchlist`, {
-          method: "POST",
-          body: JSON.stringify({ keyword }),
-        });
-      }
-    },
-    onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ["pulse", selectedProject.id] });
-      await queryClient.invalidateQueries({ queryKey: ["watchlist", selectedProject.id] });
-      setComposerOpen(false);
-    },
-  });
-  const deleteKeyword = useMutation({
-    mutationFn: (trackedKeywordId: string) =>
-      apiRequest<{ deleted: true; id: string }>(
-        `/projects/${selectedProject.id}/watchlist/${trackedKeywordId}`,
-        { method: "DELETE" },
-      ),
-    onSuccess: ({ id }) => {
-      queryClient.setQueryData<PulseResponse>(["pulse", selectedProject.id], (current) =>
-        current
-          ? {
-              ...current,
-              keywords: current.keywords.filter((keyword) => keyword.id !== id),
-              series: current.series.filter(
-                (series) =>
-                  current.keywords.find((keyword) => keyword.id === id)?.keyword !== series.keyword,
-              ),
-              signals: current.signals.filter(
-                (signal) =>
-                  current.keywords.find((keyword) => keyword.id === id)?.keyword !== signal.keyword,
-              ),
-            }
-          : current,
-      );
-      queryClient.invalidateQueries({ queryKey: ["watchlist", selectedProject.id] });
-    },
-  });
+  const observed = keywords.filter((keyword) => keyword.refreshState === "fresh");
+  const gains = observed.filter((keyword) => (keyword.movement ?? 0) > 0).length;
+  const losses = observed.filter((keyword) => (keyword.movement ?? 0) < 0).length;
+  const outside = observed.filter((keyword) => keyword.rank === null).length;
+  const latestObservedAt = observed
+    .map((keyword) => keyword.provenance.observedAt)
+    .sort()
+    .at(-1);
+  const topMovers = keywords
+    .toSorted((left, right) => Math.abs(right.movement ?? 0) - Math.abs(left.movement ?? 0))
+    .slice(0, 6);
 
   return (
     <motion.div
-      className="page pulse-page"
-      initial={{ opacity: 0, y: 8 }}
+      className="page pulse-overview"
+      initial={{ opacity: 0, y: 6 }}
       animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.4 }}
     >
-      <div className="page-intro">
+      <div className="pulse-heading">
         <div>
-          <p className="date-mobile">Thursday, July 2</p>
-          <h1>Your market, in motion.</h1>
-          <p>The signals worth acting on, distilled from today’s movement.</p>
+          <h1>Pulse</h1>
+          <p>
+            {new Intl.DateTimeFormat(undefined, {
+              weekday: "long",
+              month: "long",
+              day: "numeric",
+            }).format(new Date())}{" "}
+            · Last refreshed {relativeTime(latestObservedAt)}
+          </p>
         </div>
-        <div className="pulse-intro-controls">
-          <button
-            type="button"
-            className="secondary-button"
-            onClick={() => setGraphVisible((value) => !value)}
-          >
-            {graphVisible ? "Hide graph" : "Show graph"}
-          </button>
-          <time dateTime="2026-07-02">Thursday, July 2</time>
-        </div>
-      </div>
-      <div className={`pulse-grid ${graphVisible ? "" : "is-graph-hidden"}`}>
-        {graphVisible ? (
-          <RankChart series={pulse.data?.series ?? []} timeline={pulse.data?.timeline ?? []} />
-        ) : null}
-        <aside className="signals" aria-labelledby="signals-heading">
-          <h2 id="signals-heading">Signals</h2>
-          {signals.length === 0 ? (
-            <p className="empty-copy">
-              No movement signals yet. Add keywords and let observations accumulate.
-            </p>
-          ) : null}
-          {signals.map((signal, index) => (
-            <motion.button
-              key={signal.id}
-              className="signal-row"
-              initial={{ opacity: 0, x: 8 }}
-              animate={{ opacity: 1, x: 0 }}
-              transition={{ delay: 0.2 + index * 0.06 }}
-            >
-              <span className="signal-icon">
-                {signal.kind === "gain" || signal.kind === "entered" ? (
-                  <ArrowUpIcon />
-                ) : (
-                  <ArrowDownIcon />
-                )}
-              </span>
-              <span className="signal-copy">
-                <strong>
-                  {signal.keyword}{" "}
-                  {signal.kind === "entered"
-                    ? "entered the top 200"
-                    : signal.kind === "left"
-                      ? "fell outside the top 200"
-                      : signal.kind === "gain"
-                        ? `gained ${Math.abs(signal.movement)} place${Math.abs(signal.movement) === 1 ? "" : "s"}`
-                        : `slipped ${Math.abs(signal.movement)} place${Math.abs(signal.movement) === 1 ? "" : "s"}`}
-                </strong>
-                <small>
-                  Was {signal.previousRank ?? ">200"} · now {signal.currentRank ?? ">200"}
-                </small>
-              </span>
-              <em
-                className={
-                  signal.kind === "gain" || signal.kind === "entered" ? "positive" : "negative"
-                }
-              >
-                {signal.movement > 0 ? "+" : ""}
-                {signal.movement}
-              </em>
-            </motion.button>
-          ))}
-          <Link to="/watchlist" className="text-link">
-            Review tracking <span>→</span>
-          </Link>
-        </aside>
-      </div>
-      <section className="opportunity-section" aria-labelledby="opportunity-heading">
-        <div className="section-heading-row">
-          <div>
-            <h2 id="opportunity-heading">Opportunity field</h2>
-            <p>
-              {pulse.isError
-                ? "The API is currently unavailable."
-                : keywords.length === 0
-                  ? "Add tracked keywords to populate your first observation set."
-                  : "Observed rankings and explainable result competition."}
-            </p>
-          </div>
-          <button type="button" className="primary-button" onClick={() => setComposerOpen(true)}>
+        <div className="page-actions">
+          <button type="button" className="secondary-button" onClick={() => setComposerOpen(true)}>
             <PlusIcon size={17} /> Add keywords
           </button>
+          <button
+            type="button"
+            className="primary-button"
+            disabled={refresh.isPending || keywords.length === 0}
+            onClick={() => refresh.mutate()}
+          >
+            <RefreshIcon size={17} /> {refresh.isPending ? "Queuing…" : "Refresh all"}
+          </button>
         </div>
-        <OpportunityTable
-          rows={keywords}
-          onDelete={(id) => deleteKeyword.mutate(id)}
-          deletingId={deleteKeyword.isPending ? deleteKeyword.variables : undefined}
-        />
-      </section>
+      </div>
+      {pulse.isError ? (
+        <div className="track-state">
+          <strong>Pulse could not be loaded.</strong>
+          <button type="button" className="text-link" onClick={() => pulse.refetch()}>
+            Try again
+          </button>
+        </div>
+      ) : null}
+      {pulse.isLoading ? <div className="track-state">Loading today’s movement…</div> : null}
+      {!pulse.isLoading && !pulse.isError ? (
+        <>
+          <dl className="pulse-metric-strip">
+            <div>
+              <dt>Tracked</dt>
+              <dd>{keywords.length}</dd>
+            </div>
+            <div>
+              <dt>Gaining</dt>
+              <dd className="positive">{gains}</dd>
+            </div>
+            <div>
+              <dt>Slipping</dt>
+              <dd className="negative">{losses}</dd>
+            </div>
+            <div>
+              <dt>Outside top 200</dt>
+              <dd>{outside}</dd>
+            </div>
+            <div>
+              <dt>Next refresh</dt>
+              <dd className="metric-copy">
+                {pulse.data?.nextObservationAt
+                  ? new Date(pulse.data.nextObservationAt).toLocaleString()
+                  : "Schedule off"}
+              </dd>
+            </div>
+          </dl>
+          <div className="pulse-overview-grid">
+            <section className="top-movers" aria-labelledby="top-movers-heading">
+              <div className="section-heading-row">
+                <div>
+                  <h2 id="top-movers-heading">Top movers</h2>
+                  <p>Seven-day movement with compact, daily history.</p>
+                </div>
+                <Link to="/watchlist" className="text-link">
+                  Open tracking →
+                </Link>
+              </div>
+              {topMovers.length === 0 ? (
+                <div className="track-state">Add keywords to begin building movement history.</div>
+              ) : (
+                <div className="movers-table">
+                  {topMovers.map((keyword) => (
+                    <button
+                      type="button"
+                      key={keyword.id}
+                      className="mover-row"
+                      onClick={() => void navigate({ to: "/watchlist" })}
+                    >
+                      <span>
+                        <strong>{keyword.keyword}</strong>
+                        <small>
+                          {keyword.refreshState === "pending"
+                            ? "First observation queued"
+                            : `Rank ${keyword.rank ?? ">200"}`}
+                        </small>
+                      </span>
+                      <span
+                        className={
+                          keyword.movement === null
+                            ? ""
+                            : keyword.movement > 0
+                              ? "positive"
+                              : keyword.movement < 0
+                                ? "negative"
+                                : ""
+                        }
+                      >
+                        {keyword.movement === null
+                          ? "—"
+                          : `${keyword.movement > 0 ? "↑" : keyword.movement < 0 ? "↓" : "→"} ${Math.abs(keyword.movement)}`}
+                      </span>
+                      <RankSparkline
+                        points={keyword.sparkline}
+                        movement={keyword.movement}
+                        label={`${keyword.keyword} seven day rank trend`}
+                      />
+                    </button>
+                  ))}
+                </div>
+              )}
+            </section>
+            <section className="pulse-signals" aria-labelledby="signals-heading">
+              <div className="section-heading-row">
+                <div>
+                  <h2 id="signals-heading">Signals</h2>
+                  <p>Changes worth reviewing.</p>
+                </div>
+              </div>
+              {signals.length === 0 ? (
+                <div className="track-state">No movement signals yet.</div>
+              ) : (
+                signals.map((signal) => (
+                  <button
+                    type="button"
+                    className="pulse-signal-row"
+                    key={signal.id}
+                    onClick={() => void navigate({ to: "/watchlist" })}
+                  >
+                    <span className="signal-icon">
+                      {signal.movement > 0 ? <ArrowUpIcon /> : <ArrowDownIcon />}
+                    </span>
+                    <span>
+                      <strong>{signal.keyword}</strong>
+                      <small>
+                        {signal.previousRank ?? ">200"} → {signal.currentRank ?? ">200"}
+                      </small>
+                    </span>
+                    <em className={signal.movement > 0 ? "positive" : "negative"}>
+                      {signal.movement > 0 ? "+" : ""}
+                      {signal.movement}
+                    </em>
+                  </button>
+                ))
+              )}
+            </section>
+          </div>
+        </>
+      ) : null}
       <KeywordComposerDialog
         open={composerOpen}
         title="Add keywords"
-        description="Paste one or more terms for this app’s tracking list."
+        description="Paste up to 100 terms. Observations run in the background."
         submitLabel="Add to tracking"
         submitting={addKeywords.isPending}
         onClose={() => setComposerOpen(false)}
-        onSubmit={async (value) => {
-          await addKeywords.mutateAsync(value);
-        }}
+        onSubmit={(value) => addKeywords.mutateAsync(value).then(() => undefined)}
       />
     </motion.div>
   );

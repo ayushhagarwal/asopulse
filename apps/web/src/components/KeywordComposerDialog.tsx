@@ -25,10 +25,16 @@ export function KeywordComposerDialog({
   useEffect(() => {
     if (open) {
       window.requestAnimationFrame(() => inputRef.current?.focus());
+      const handleKey = (event: KeyboardEvent) => {
+        if (event.key === "Escape") onClose();
+      };
+      window.addEventListener("keydown", handleKey);
+      return () => window.removeEventListener("keydown", handleKey);
     } else {
       setValue("");
     }
-  }, [open]);
+    return undefined;
+  }, [onClose, open]);
 
   return (
     <AnimatePresence>
