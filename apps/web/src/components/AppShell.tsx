@@ -18,6 +18,7 @@ import {
   SettingsIcon,
 } from "./icons";
 import { Logo } from "./Logo";
+import { MarketPickerDialog } from "./MarketPickerDialog";
 import { PulseField } from "./PulseField";
 
 const navigation = [
@@ -32,6 +33,8 @@ export function AppShell({ children }: { children: ReactNode }) {
   const [commandOpen, setCommandOpen] = useState(false);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [marketPickerOpen, setMarketPickerOpen] = useState(false);
+  const [accountOpen, setAccountOpen] = useState(false);
   const queryClient = useQueryClient();
   const pathname = useRouterState({ select: (state) => state.location.pathname });
   const createProject = useMutation({
@@ -43,12 +46,36 @@ export function AppShell({ children }: { children: ReactNode }) {
           appId: app.appId,
           appName: app.name,
           storefront,
+          iconUrl: app.iconUrl,
+          timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
         }),
       }),
     onSuccess: async ({ data }) => {
       await queryClient.invalidateQueries({ queryKey: ["projects"] });
       setSelectedProjectId(data.id);
       setPickerOpen(false);
+    },
+  });
+  const createMarket = useMutation({
+    mutationFn: (storefront: string) =>
+      apiRequest<{ project: { id: string }; created: boolean }>(
+        `/projects/${selectedProject.id}/markets`,
+        {
+          method: "POST",
+          body: JSON.stringify({ storefront }),
+        },
+      ),
+    onSuccess: async ({ project }) => {
+      await queryClient.invalidateQueries({ queryKey: ["projects"] });
+      setSelectedProjectId(project.id);
+      setMarketPickerOpen(false);
+    },
+  });
+  const logout = useMutation({
+    mutationFn: () => apiRequest<{ loggedOut: true }>("/auth/logout", { method: "POST" }),
+    onSuccess: async () => {
+      setAccountOpen(false);
+      await queryClient.invalidateQueries({ queryKey: ["session"] });
     },
   });
 
@@ -61,6 +88,9 @@ export function AppShell({ children }: { children: ReactNode }) {
       if (event.key === "Escape") {
         setCommandOpen(false);
         setMobileNavOpen(false);
+        setPickerOpen(false);
+        setMarketPickerOpen(false);
+        setAccountOpen(false);
       }
     };
     window.addEventListener("keydown", handleKey);
@@ -137,11 +167,21 @@ export function AppShell({ children }: { children: ReactNode }) {
       <div className="workspace">
         <header className="utility-bar">
           <button type="button" className="app-selector" onClick={() => setPickerOpen(true)}>
-            <span className="app-icon">{selectedProject.name.slice(0, 1)}</span>
+            <span className="app-icon">
+              {selectedProject.iconUrl ? (
+                <img src={selectedProject.iconUrl} alt="" />
+              ) : (
+                selectedProject.name.slice(0, 1)
+              )}
+            </span>
             <span>{selectedProject.name}</span>
             <ChevronDownIcon size={16} />
           </button>
-          <button type="button" className="store-selector" onClick={() => setPickerOpen(true)}>
+          <button
+            type="button"
+            className="store-selector"
+            onClick={() => setMarketPickerOpen(true)}
+          >
             <span>{storefrontName(selectedProject.storefront)} · App Store</span>
             <ChevronDownIcon size={16} />
           </button>
@@ -152,9 +192,26 @@ export function AppShell({ children }: { children: ReactNode }) {
               <CommandIcon size={13} /> K
             </kbd>
           </button>
-          <button type="button" className="avatar" aria-label="Open account menu">
+          <button
+            type="button"
+            className="avatar"
+            aria-label="Open account menu"
+            aria-expanded={accountOpen}
+            onClick={() => setAccountOpen((value) => !value)}
+          >
             {user.username.slice(0, 1).toUpperCase()}
           </button>
+          {accountOpen ? (
+            <div className="account-menu">
+              <strong>{user.username}</strong>
+              <Link to="/settings" onClick={() => setAccountOpen(false)}>
+                Settings
+              </Link>
+              <button type="button" onClick={() => logout.mutate()} disabled={logout.isPending}>
+                {logout.isPending ? "Signing out…" : "Sign out"}
+              </button>
+            </div>
+          ) : null}
         </header>
         <main id="main-content" className="content">
           {children}
@@ -171,6 +228,18 @@ export function AppShell({ children }: { children: ReactNode }) {
         onSelectProject={(projectId) => {
           setSelectedProjectId(projectId);
           setPickerOpen(false);
+        }}
+      />
+      <MarketPickerDialog
+        open={marketPickerOpen}
+        onClose={() => setMarketPickerOpen(false)}
+        projects={projects}
+        currentProject={selectedProject}
+        creating={createMarket.isPending}
+        onCreate={(storefront) => createMarket.mutate(storefront)}
+        onSelect={(projectId) => {
+          setSelectedProjectId(projectId);
+          setMarketPickerOpen(false);
         }}
       />
     </div>

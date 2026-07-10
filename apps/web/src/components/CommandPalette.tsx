@@ -19,6 +19,7 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
   const navigate = useNavigate();
   const inputRef = useRef<HTMLInputElement>(null);
   const [query, setQuery] = useState("");
+  const [activeIndex, setActiveIndex] = useState(0);
   const filtered = actions.filter((action) =>
     `${action.label} ${action.hint}`.toLowerCase().includes(query.toLowerCase()),
   );
@@ -26,7 +27,15 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
   useEffect(() => {
     if (open) requestAnimationFrame(() => inputRef.current?.focus());
     else setQuery("");
+    setActiveIndex(0);
   }, [open]);
+
+  function runAction(index: number) {
+    const action = filtered[index];
+    if (!action) return;
+    void navigate({ to: action.to });
+    onClose();
+  }
 
   return (
     <AnimatePresence>
@@ -54,7 +63,24 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
               <input
                 ref={inputRef}
                 value={query}
-                onChange={(event) => setQuery(event.target.value)}
+                onChange={(event) => {
+                  setQuery(event.target.value);
+                  setActiveIndex(0);
+                }}
+                onKeyDown={(event) => {
+                  if (event.key === "ArrowDown") {
+                    event.preventDefault();
+                    setActiveIndex((index) => Math.min(filtered.length - 1, index + 1));
+                  }
+                  if (event.key === "ArrowUp") {
+                    event.preventDefault();
+                    setActiveIndex((index) => Math.max(0, index - 1));
+                  }
+                  if (event.key === "Enter") {
+                    event.preventDefault();
+                    runAction(activeIndex);
+                  }
+                }}
                 placeholder="Search or type a command…"
               />
               <button
@@ -67,14 +93,13 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
               </button>
             </div>
             <div className="command-results">
-              {filtered.map((action) => (
+              {filtered.map((action, index) => (
                 <button
                   type="button"
                   key={action.to}
-                  onClick={() => {
-                    void navigate({ to: action.to });
-                    onClose();
-                  }}
+                  className={activeIndex === index ? "is-active" : ""}
+                  onMouseEnter={() => setActiveIndex(index)}
+                  onClick={() => runAction(index)}
                 >
                   <action.icon size={19} />
                   <span>

@@ -193,6 +193,8 @@ export function ProjectOnboardingPage() {
           appId: app.appId,
           appName: app.name,
           storefront,
+          iconUrl: app.iconUrl,
+          timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
         }),
       }),
     onSuccess: async () => {

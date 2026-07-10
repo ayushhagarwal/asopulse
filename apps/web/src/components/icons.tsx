@@ -89,6 +89,18 @@ export const CheckIcon = (props: IconProps) => (
     <path d="m5 12.5 4.3 4.3L19 7" />
   </IconBase>
 );
+export const RefreshIcon = (props: IconProps) => (
+  <IconBase {...props}>
+    <path d="M19.5 8.5V4.8l-2 2A8 8 0 1 0 19 16" />
+    <path d="M19.5 4.8h-3.7" />
+  </IconBase>
+);
+export const CalendarIcon = (props: IconProps) => (
+  <IconBase {...props}>
+    <path d="M5 4.5h14a1.5 1.5 0 0 1 1.5 1.5v13A1.5 1.5 0 0 1 19 20.5H5A1.5 1.5 0 0 1 3.5 19V6A1.5 1.5 0 0 1 5 4.5Z" />
+    <path d="M7.5 2.5v4M16.5 2.5v4M3.5 9h17" />
+  </IconBase>
+);
 export const CommandIcon = (props: IconProps) => (
   <IconBase {...props}>
     <path d="M9 6.5V5a2.5 2.5 0 1 0-2.5 2.5H18a2.5 2.5 0 1 0-2.5-2.5v14a2.5 2.5 0 1 0 2.5-2.5H6.5A2.5 2.5 0 1 0 9 19z" />

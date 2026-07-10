@@ -18,6 +18,14 @@ export type WorkspaceProject = {
   appId: string;
   appName: string;
   storefront: string;
+  iconUrl: string;
+  settings: {
+    enabled: boolean;
+    frequency: "daily" | "weekdays" | "weekly";
+    time: string;
+    timezone: string;
+    weekday: number;
+  };
   createdAt: string;
 };
 

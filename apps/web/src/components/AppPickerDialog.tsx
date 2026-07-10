@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { AnimatePresence, motion } from "motion/react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { apiRequest } from "../lib/api";
 import { STOREFRONTS, type StorefrontCode, storefrontName } from "../lib/storefronts";
 import type { WorkspaceProject } from "../lib/workspace";
@@ -39,6 +39,14 @@ export function AppPickerDialog({
   const [input, setInput] = useState("");
   const [term, setTerm] = useState("");
   const [storefront, setStorefront] = useState<StorefrontCode>("US");
+  useEffect(() => {
+    if (!open) return;
+    const handleKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", handleKey);
+    return () => window.removeEventListener("keydown", handleKey);
+  }, [onClose, open]);
   const search = useQuery({
     queryKey: ["app-search", term, storefront],
     queryFn: () =>
