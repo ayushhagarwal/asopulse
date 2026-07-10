@@ -22,44 +22,63 @@ const database = createDatabase(databaseUrl);
 const workspace = createWorkspaceService({
   database: database.db,
   provider: new AppleSearchProvider(),
-  ...(process.env.TRACKING_SCHEDULE ? { trackingSchedule: process.env.TRACKING_SCHEDULE } : {}),
 });
 
 const queue = new Queue<ObservationJob, unknown, string>(OBSERVATION_QUEUE, { connection });
 
-await queue.upsertJobScheduler(
-  "daily-rank-observation",
-  { pattern: process.env.TRACKING_SCHEDULE ?? "0 6 * * *" },
-  {
-    name: "observe-projects",
-    data: { projectId: "all" },
-    opts: {
-      attempts: 4,
-      backoff: { type: "exponential", delay: 30_000 },
-      removeOnComplete: 100,
-      removeOnFail: 250,
+function schedulePattern(settings: {
+  frequency: "daily" | "weekdays" | "weekly";
+  time: string;
+  weekday: number;
+}) {
+  const [hour = "6", minute = "0"] = settings.time.split(":");
+  if (settings.frequency === "weekdays") return `${Number(minute)} ${Number(hour)} * * 1-5`;
+  if (settings.frequency === "weekly") {
+    return `${Number(minute)} ${Number(hour)} * * ${settings.weekday === 7 ? 0 : settings.weekday}`;
+  }
+  return `${Number(minute)} ${Number(hour)} * * *`;
+}
+
+for (const project of await workspace.listScheduledProjects()) {
+  await queue.upsertJobScheduler(
+    `project:${project.id}`,
+    { pattern: schedulePattern(project.settings), tz: project.settings.timezone },
+    {
+      name: "observe-project",
+      data: { projectId: project.id, trigger: "scheduled" },
+      opts: {
+        attempts: 4,
+        backoff: { type: "exponential", delay: 30_000 },
+        removeOnComplete: 100,
+        removeOnFail: 250,
+      },
     },
-  },
-);
+  );
+}
 
 const worker = new Worker<ObservationJob, { projectId: string; observedAt: string }>(
   OBSERVATION_QUEUE,
   async (job) => {
-    const jobRun = await workspace.createJobRun("daily-rank-observation", `job:${job.id}`);
+    const jobRun = job.data.runId
+      ? { id: job.data.runId }
+      : await workspace.createSystemObservationRun(
+          job.data.projectId,
+          job.data.trigger === "initial" ? "initial" : "scheduled",
+          job.data.trackedKeywordIds,
+        );
     try {
-      const result =
-        job.data.projectId === "all"
-          ? await workspace.observeAllProjects()
-          : await workspace.observeProject(job.data.projectId);
-      await workspace.finishJobRun(
-        jobRun.id,
-        "completed",
-        `${result.observedKeywords} keywords observed, ${result.generatedSignals} signals generated`,
-      );
+      await workspace.startObservationRun(jobRun.id);
+      const result = await workspace.observeProject(job.data.projectId, job.data.trackedKeywordIds);
+      await workspace.finishObservationRun(jobRun.id, result);
       return { projectId: job.data.projectId, observedAt: result.observedAt };
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unknown observation failure";
-      await workspace.finishJobRun(jobRun.id, "failed", message);
+      await workspace.finishObservationRun(jobRun.id, {
+        observedKeywords: 0,
+        generatedSignals: 0,
+        failedKeywords: [{ keyword: "project", message }],
+        observedAt: new Date().toISOString(),
+      });
       throw error;
     }
   },

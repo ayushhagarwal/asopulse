@@ -1,2 +1,1 @@
-export const OBSERVATION_QUEUE = "asopulse-observations";
-export type ObservationJob = { projectId: string; trackedKeywordId?: string };
+export { OBSERVATION_QUEUE, type ObservationJob } from "@asopulse/core";
