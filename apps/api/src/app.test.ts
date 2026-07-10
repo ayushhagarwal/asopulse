@@ -57,6 +57,8 @@ const watchlistItem: WatchlistItem = {
     confidence: "high",
     methodVersion: "opportunity-1.0.0",
   },
+  sparkline: [{ date: "2026-07-04", rank: 12, observed: true }],
+  refreshState: "fresh",
 };
 
 const discoveryScore: KeywordScore = {
@@ -154,6 +156,42 @@ const workspace = {
       createdAt: "2026-07-04T06:00:00.000Z",
     };
   },
+  async createMarketForProject() {
+    return {
+      created: true,
+      project: {
+        id: "project-in",
+        name: "Clarity",
+        appId: "1",
+        appName: "Clarity",
+        storefront: "IN",
+        iconUrl: "",
+        settings: {
+          enabled: true,
+          frequency: "daily",
+          time: "06:00",
+          timezone: "UTC",
+          weekday: 1,
+        },
+        createdAt: "2026-07-04T06:00:00.000Z",
+      },
+    };
+  },
+  async createObservationRun() {
+    return {
+      id: "run-1",
+      projectId,
+      trigger: "manual",
+      status: "queued",
+      requestedCount: 1,
+      observedCount: 0,
+      failedCount: 0,
+      failures: [],
+      startedAt: "2026-07-04T06:00:00.000Z",
+      finishedAt: null,
+      nextEligibleManualAt: "2026-07-04T06:15:00.000Z",
+    };
+  },
   async discoverKeyword() {
     return {
       data: discoveryScore,
@@ -173,6 +211,29 @@ const workspace = {
       worker: "configured",
       lastObservationAt: "2026-07-04T06:00:00.000Z",
       latestJob: null,
+    };
+  },
+  async getLatestObservationRunForProject() {
+    return null;
+  },
+  async getKeywordHistoryForProject() {
+    return {
+      keywordId: "kw-1",
+      keyword: "daily journal",
+      range: "30d",
+      timeline: [{ date: "2026-07-04", label: "Jul 4", rank: 12, observed: true }],
+      currentRank: 12,
+      movement: 4,
+      lastObservedAt: "2026-07-04T06:00:00.000Z",
+    };
+  },
+  async getProjectSettings() {
+    return {
+      enabled: true,
+      frequency: "daily",
+      time: "06:00",
+      timezone: "UTC",
+      weekday: 1,
     };
   },
   async getPulseForProject() {
@@ -221,6 +282,18 @@ const workspace = {
   },
   async trackKeywordForProject() {
     return watchlistItem;
+  },
+  async trackKeywordsForProject() {
+    return [watchlistItem];
+  },
+  async updateProjectSettings() {
+    return {
+      enabled: true,
+      frequency: "weekdays",
+      time: "08:30",
+      timezone: "Asia/Kolkata",
+      weekday: 1,
+    };
   },
 } as unknown as NonNullable<Parameters<typeof buildApp>[0]>["workspace"];
 
@@ -307,5 +380,54 @@ describe("ASOpulse API", () => {
     });
     expect(response.statusCode).toBe(200);
     expect(response.json()).toMatchObject({ importedKeywords: 1, importedObservations: 1 });
+  });
+
+  test("returns range-aware keyword history", async () => {
+    const response = await app.inject({
+      method: "GET",
+      url: `/api/v1/projects/${projectId}/watchlist/${watchlistItem.id}/history?range=30d`,
+      headers: { cookie: sessionCookie },
+    });
+    expect(response.statusCode).toBe(200);
+    expect(response.json().data).toMatchObject({ keyword: "daily journal", range: "30d" });
+  });
+
+  test("persists project observation settings", async () => {
+    const response = await app.inject({
+      method: "PATCH",
+      url: `/api/v1/projects/${projectId}/settings`,
+      headers: { cookie: sessionCookie },
+      payload: {
+        enabled: true,
+        frequency: "weekdays",
+        time: "08:30",
+        timezone: "Asia/Kolkata",
+        weekday: 1,
+      },
+    });
+    expect(response.statusCode).toBe(200);
+    expect(response.json().data).toMatchObject({ frequency: "weekdays", time: "08:30" });
+  });
+
+  test("queues a manual observation run", async () => {
+    const response = await app.inject({
+      method: "POST",
+      url: `/api/v1/projects/${projectId}/observation-runs`,
+      headers: { cookie: sessionCookie },
+      payload: { trackedKeywordIds: [watchlistItem.id] },
+    });
+    expect(response.statusCode).toBe(202);
+    expect(response.json().data).toMatchObject({ id: "run-1", status: "queued" });
+  });
+
+  test("creates an isolated sibling market", async () => {
+    const response = await app.inject({
+      method: "POST",
+      url: `/api/v1/projects/${projectId}/markets`,
+      headers: { cookie: sessionCookie },
+      payload: { storefront: "IN" },
+    });
+    expect(response.statusCode).toBe(201);
+    expect(response.json()).toMatchObject({ created: true, project: { storefront: "IN" } });
   });
 });
