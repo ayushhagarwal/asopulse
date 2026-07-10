@@ -14,7 +14,23 @@ export type ProjectRecord = {
   appId: string;
   appName: string;
   storefront: string;
+  iconUrl: string;
+  scheduleEnabled: boolean;
+  scheduleFrequency: string;
+  scheduleTime: string;
+  scheduleTimezone: string;
+  scheduleWeekday: number;
   createdAt: Date | string;
+};
+
+export type ScheduleFrequency = "daily" | "weekdays" | "weekly";
+
+export type ProjectSettings = {
+  enabled: boolean;
+  frequency: ScheduleFrequency;
+  time: string;
+  timezone: string;
+  weekday: number;
 };
 
 export type ProjectSummary = {
@@ -23,6 +39,8 @@ export type ProjectSummary = {
   appId: string;
   appName: string;
   storefront: string;
+  iconUrl: string;
+  settings: ProjectSettings;
   createdAt: string;
 };
 
@@ -33,7 +51,7 @@ export type WatchlistItem = {
   competition: number;
   opportunity: number;
   resultCount: number;
-  movement: number;
+  movement: number | null;
   tags: string[];
   tracked: true;
   provenance: {
@@ -41,6 +59,8 @@ export type WatchlistItem = {
     confidence: string;
     methodVersion: string;
   };
+  sparkline: Array<{ date: string; rank: number | null; observed: boolean }>;
+  refreshState: "pending" | "fresh";
 };
 
 export type PulseSeries = {
@@ -64,13 +84,15 @@ export type ProjectPulse = {
 };
 
 export type ProjectBackup = {
-  version: 2;
+  version: 2 | 3;
   exportedAt: string;
   project: {
     name: string;
     appId: string;
     appName: string;
     storefront: string;
+    iconUrl?: string;
+    settings?: ProjectSettings;
   };
   trackedKeywords: Array<{
     keyword: string;
@@ -98,5 +120,40 @@ export type BackupImportResult = {
 export type ObservationRunResult = {
   observedKeywords: number;
   generatedSignals: number;
+  failedKeywords: Array<{ keyword: string; message: string }>;
   observedAt: string;
+};
+
+export type HistoryRange = "7d" | "30d" | "90d";
+
+export type KeywordHistory = {
+  keywordId: string;
+  keyword: string;
+  range: HistoryRange;
+  timeline: Array<{ date: string; label: string; rank: number | null; observed: boolean }>;
+  currentRank: number | null;
+  movement: number | null;
+  lastObservedAt: string | null;
+};
+
+export type ObservationRunSummary = {
+  id: string;
+  projectId: string | null;
+  trigger: "manual" | "scheduled" | "initial";
+  status: "queued" | "running" | "completed" | "partial" | "failed";
+  requestedCount: number;
+  observedCount: number;
+  failedCount: number;
+  failures: Array<{ keyword: string; message: string }>;
+  startedAt: string;
+  finishedAt: string | null;
+  nextEligibleManualAt: string | null;
+};
+
+export const OBSERVATION_QUEUE = "asopulse-observations";
+export type ObservationJob = {
+  projectId: string;
+  trackedKeywordIds?: string[];
+  runId?: string;
+  trigger?: "manual" | "scheduled" | "initial";
 };
