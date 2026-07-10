@@ -16,17 +16,29 @@ export const users = pgTable("users", {
   passwordHash: text("password_hash").notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
-export const projects = pgTable("projects", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  ownerId: uuid("owner_id")
-    .notNull()
-    .references(() => users.id, { onDelete: "cascade" }),
-  name: text("name").notNull(),
-  appId: text("app_id").notNull(),
-  appName: text("app_name").notNull(),
-  storefront: text("storefront").notNull().default("US"),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-});
+export const projects = pgTable(
+  "projects",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    ownerId: uuid("owner_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    appId: text("app_id").notNull(),
+    appName: text("app_name").notNull(),
+    storefront: text("storefront").notNull().default("US"),
+    iconUrl: text("icon_url").notNull().default(""),
+    scheduleEnabled: boolean("schedule_enabled").notNull().default(true),
+    scheduleFrequency: text("schedule_frequency").notNull().default("daily"),
+    scheduleTime: text("schedule_time").notNull().default("06:00"),
+    scheduleTimezone: text("schedule_timezone").notNull().default("UTC"),
+    scheduleWeekday: integer("schedule_weekday").notNull().default(1),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("projects_owner_app_storefront").on(table.ownerId, table.appId, table.storefront),
+  ],
+);
 export const trackedKeywords = pgTable(
   "tracked_keywords",
   {
@@ -73,8 +85,17 @@ export const signals = pgTable("signals", {
 export const jobRuns = pgTable("job_runs", {
   id: uuid("id").primaryKey().defaultRandom(),
   jobName: text("job_name").notNull(),
+  projectId: uuid("project_id").references(() => projects.id, { onDelete: "cascade" }),
+  trigger: text("trigger").notNull().default("scheduled"),
   status: text("status").notNull(),
   detail: text("detail"),
+  requestedCount: integer("requested_count").notNull().default(0),
+  observedCount: integer("observed_count").notNull().default(0),
+  failedCount: integer("failed_count").notNull().default(0),
+  failures: jsonb("failures")
+    .$type<Array<{ keyword: string; message: string }>>()
+    .notNull()
+    .default([]),
   startedAt: timestamp("started_at", { withTimezone: true }).notNull().defaultNow(),
   finishedAt: timestamp("finished_at", { withTimezone: true }),
 });

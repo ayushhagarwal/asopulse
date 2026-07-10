@@ -32,4 +32,21 @@ describe("AppleSearchProvider", () => {
     );
     await expect(provider.searchApps("clarity", "US")).rejects.toThrow("429");
   });
+
+  test("allows observation callers to bypass cached keyword results", async () => {
+    let requests = 0;
+    const provider = new AppleSearchProvider(
+      async () => {
+        requests += 1;
+        return Response.json({ resultCount: 0, results: [] });
+      },
+      60_000,
+      0,
+      60_000,
+    );
+    await provider.searchKeyword("journal", "US");
+    await provider.searchKeyword("journal", "US");
+    await provider.searchKeyword("journal", "US", { maxAgeMs: 0 });
+    expect(requests).toBe(2);
+  });
 });

@@ -14,24 +14,33 @@ import {
   toCsv,
 } from "@asopulse/domain";
 import type { AppStoreProvider } from "@asopulse/providers";
-import { and, asc, desc, eq } from "drizzle-orm";
+import { and, asc, desc, eq, inArray } from "drizzle-orm";
 import type {
   BackupImportResult,
+  HistoryRange,
+  KeywordHistory,
   ObservationRunResult,
+  ObservationRunSummary,
   ProjectBackup,
   ProjectPulse,
   ProjectRecord,
+  ProjectSettings,
   ProjectSummary,
-  PulseSeries,
-  TimelinePoint,
   WatchlistItem,
 } from "./types.js";
 
 type DatabaseClient = ReturnType<typeof createDatabase>["db"];
 
+export class ManualRefreshCooldownError extends Error {
+  constructor(readonly retryAfterSeconds: number) {
+    super("Manual refresh is cooling down");
+  }
+}
+
 const SERIES_COLORS = ["#0b4f2d", "#289746", "#92bf6d"] as const;
 const DEFAULT_STOREFRONT = "US";
-const DEFAULT_SCHEDULE = "0 6 * * *";
+const RANGE_DAYS: Record<HistoryRange, number> = { "7d": 7, "30d": 30, "90d": 90 };
+const MANUAL_REFRESH_COOLDOWN_MS = 15 * 60 * 1000;
 
 const asIso = (value: Date | string) =>
   (typeof value === "string" ? new Date(value) : value).toISOString();
@@ -43,6 +52,16 @@ const normalizeStorefront = (value?: string) =>
     ? (value?.toUpperCase() ?? DEFAULT_STOREFRONT)
     : DEFAULT_STOREFRONT;
 
+function isValidTimezone(value?: string): boolean {
+  if (!value) return false;
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone: value }).format();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function projectSummary(project: ProjectRecord): ProjectSummary {
   return {
     id: project.id,
@@ -50,18 +69,138 @@ function projectSummary(project: ProjectRecord): ProjectSummary {
     appId: project.appId,
     appName: project.appName,
     storefront: project.storefront,
+    iconUrl: project.iconUrl,
+    settings: {
+      enabled: project.scheduleEnabled,
+      frequency: asScheduleFrequency(project.scheduleFrequency),
+      time: project.scheduleTime,
+      timezone: project.scheduleTimezone,
+      weekday: project.scheduleWeekday,
+    },
     createdAt: asIso(project.createdAt),
   };
 }
 
-function parseNextObservationAt(schedule = DEFAULT_SCHEDULE, now = new Date()): string | null {
-  const match = /^0\s+(\d{1,2})\s+\*\s+\*\s+\*$/.exec(schedule.trim());
-  if (!match) return null;
-  const target = new Date(now);
-  target.setUTCMinutes(0, 0, 0);
-  target.setUTCHours(Number(match[1]));
-  if (target <= now) target.setUTCDate(target.getUTCDate() + 1);
-  return target.toISOString();
+function asScheduleFrequency(value: string): ProjectSettings["frequency"] {
+  return value === "weekdays" || value === "weekly" ? value : "daily";
+}
+
+export function asHistoryRange(value?: string): HistoryRange {
+  return value === "30d" || value === "90d" ? value : "7d";
+}
+
+function dateKey(value: Date | string, timezone: string): string {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: timezone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(new Date(value));
+  const part = (type: string) => parts.find((item) => item.type === type)?.value ?? "00";
+  return `${part("year")}-${part("month")}-${part("day")}`;
+}
+
+function dayDomain(range: HistoryRange, timezone: string, now = new Date()): string[] {
+  const today = dateKey(now, timezone);
+  const cursor = new Date(`${today}T12:00:00.000Z`);
+  return Array.from({ length: RANGE_DAYS[range] }, (_, offset) => {
+    const day = new Date(cursor);
+    day.setUTCDate(cursor.getUTCDate() - (RANGE_DAYS[range] - offset - 1));
+    return day.toISOString().slice(0, 10);
+  });
+}
+
+function dayLabel(day: string, range: HistoryRange) {
+  return new Intl.DateTimeFormat("en-US", {
+    month: "short",
+    day: "numeric",
+    ...(range === "90d" ? { year: "2-digit" as const } : {}),
+    timeZone: "UTC",
+  }).format(new Date(`${day}T12:00:00.000Z`));
+}
+
+export function buildDailyHistory(
+  entries: Array<{ observedAt: string; rank: number | null }>,
+  range: HistoryRange,
+  timezone: string,
+  now = new Date(),
+) {
+  const latestByDay = new Map<string, { observedAt: string; rank: number | null }>();
+  for (const entry of entries) {
+    const key = dateKey(entry.observedAt, timezone);
+    const current = latestByDay.get(key);
+    if (!current || current.observedAt < entry.observedAt) latestByDay.set(key, entry);
+  }
+  return dayDomain(range, timezone, now).map((day) => ({
+    date: day,
+    label: dayLabel(day, range),
+    rank: latestByDay.get(day)?.rank ?? null,
+    observed: latestByDay.has(day),
+  }));
+}
+
+function movementAcrossRange(
+  keyword: string,
+  history: Array<{ rank: number | null; observed: boolean }>,
+): number | null {
+  const observed = history.filter((point) => point.observed);
+  if (observed.length < 2) return null;
+  const previous = observed[0];
+  const current = observed[observed.length - 1];
+  if (!previous || !current) return null;
+  return deriveRankingSignal(keyword, previous.rank, current.rank)?.movement ?? 0;
+}
+
+function zonedDateTimeToUtc(day: string, time: string, timezone: string): Date {
+  const [year, month, date] = day.split("-").map(Number);
+  const [hour, minute] = time.split(":").map(Number);
+  let candidate = new Date(
+    Date.UTC(year ?? 1970, (month ?? 1) - 1, date ?? 1, hour ?? 0, minute ?? 0),
+  );
+  for (let iteration = 0; iteration < 2; iteration += 1) {
+    const parts = new Intl.DateTimeFormat("en-US", {
+      timeZone: timezone,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+      hourCycle: "h23",
+    }).formatToParts(candidate);
+    const value = (type: string) => Number(parts.find((part) => part.type === type)?.value ?? 0);
+    const represented = Date.UTC(
+      value("year"),
+      value("month") - 1,
+      value("day"),
+      value("hour"),
+      value("minute"),
+      value("second"),
+    );
+    const offset = represented - candidate.getTime();
+    candidate = new Date(
+      Date.UTC(year ?? 1970, (month ?? 1) - 1, date ?? 1, hour ?? 0, minute ?? 0) - offset,
+    );
+  }
+  return candidate;
+}
+
+function nextObservationAtForProject(project: ProjectRecord, now = new Date()): string | null {
+  if (!project.scheduleEnabled) return null;
+  const today = dateKey(now, project.scheduleTimezone);
+  const cursor = new Date(`${today}T12:00:00.000Z`);
+  for (let offset = 0; offset < 8; offset += 1) {
+    const localDay = new Date(cursor);
+    localDay.setUTCDate(cursor.getUTCDate() + offset);
+    const day = localDay.toISOString().slice(0, 10);
+    const weekday = localDay.getUTCDay() === 0 ? 7 : localDay.getUTCDay();
+    const frequency = asScheduleFrequency(project.scheduleFrequency);
+    if (frequency === "weekdays" && weekday > 5) continue;
+    if (frequency === "weekly" && weekday !== project.scheduleWeekday) continue;
+    const candidate = zonedDateTimeToUtc(day, project.scheduleTime, project.scheduleTimezone);
+    if (candidate > now) return candidate.toISOString();
+  }
+  return null;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -90,7 +229,11 @@ function asSignalPayload(value: Record<string, unknown>): RankingSignal | null {
 }
 
 function assertBackup(value: unknown): asserts value is ProjectBackup {
-  if (!isRecord(value) || value.version !== 2 || !isRecord(value.project)) {
+  if (
+    !isRecord(value) ||
+    (value.version !== 2 && value.version !== 3) ||
+    !isRecord(value.project)
+  ) {
     throw new Error("Unsupported or malformed ASOpulse backup");
   }
   if (
@@ -116,36 +259,12 @@ function assertBackup(value: unknown): asserts value is ProjectBackup {
   }
 }
 
-function buildMovement(previousRank: number | null, currentRank: number | null, keyword: string) {
-  return deriveRankingSignal(keyword, previousRank, currentRank)?.movement ?? 0;
-}
-
-function createSeries(
-  timeline: TimelinePoint[],
-  keywordHistory: Array<{
-    keyword: string;
-    entries: Array<{ observedAt: string; rank: number | null }>;
-  }>,
-): PulseSeries[] {
-  const timelineIndex = new Map(timeline.map((point, index) => [point.observedAt, index]));
-  return keywordHistory.slice(0, SERIES_COLORS.length).map((item, index) => {
-    const values = new Array<number | null>(timeline.length).fill(null);
-    for (const entry of item.entries) {
-      const timelinePosition = timelineIndex.get(entry.observedAt);
-      if (timelinePosition !== undefined) values[timelinePosition] = entry.rank;
-    }
-    return { keyword: item.keyword, color: SERIES_COLORS[index] ?? SERIES_COLORS[0], values };
-  });
-}
-
 export function createWorkspaceService({
   database,
   provider,
-  trackingSchedule = process.env.TRACKING_SCHEDULE ?? DEFAULT_SCHEDULE,
 }: {
   database: DatabaseClient;
   provider: AppStoreProvider;
-  trackingSchedule?: string;
 }) {
   async function listProjectsForOwner(ownerId: string): Promise<ProjectSummary[]> {
     const rows = await database
@@ -158,8 +277,28 @@ export function createWorkspaceService({
 
   async function createProjectForOwner(
     ownerId: string,
-    input: { name: string; appId: string; appName: string; storefront?: string },
+    input: {
+      name: string;
+      appId: string;
+      appName: string;
+      storefront?: string;
+      iconUrl?: string;
+      timezone?: string;
+    },
   ): Promise<ProjectSummary> {
+    const normalizedStorefront = normalizeStorefront(input.storefront);
+    const [existing] = await database
+      .select()
+      .from(projects)
+      .where(
+        and(
+          eq(projects.ownerId, ownerId),
+          eq(projects.appId, input.appId.trim()),
+          eq(projects.storefront, normalizedStorefront),
+        ),
+      )
+      .limit(1);
+    if (existing) return projectSummary(existing);
     const [created] = await database
       .insert(projects)
       .values({
@@ -167,7 +306,9 @@ export function createWorkspaceService({
         name: input.name.trim(),
         appId: input.appId.trim(),
         appName: input.appName.trim(),
-        storefront: normalizeStorefront(input.storefront),
+        storefront: normalizedStorefront,
+        iconUrl: input.iconUrl?.trim() ?? "",
+        scheduleTimezone: isValidTimezone(input.timezone) ? (input.timezone ?? "UTC") : "UTC",
       })
       .returning();
     if (!created) throw new Error("Unable to create project");
@@ -265,13 +406,20 @@ export function createWorkspaceService({
     return [...grouped.values()];
   }
 
-  async function buildWatchlist(projectId: string): Promise<WatchlistItem[]> {
+  async function buildWatchlist(
+    projectId: string,
+    range: HistoryRange = "7d",
+    timezone = "UTC",
+  ): Promise<WatchlistItem[]> {
     const tracked = await listTrackedKeywordState(projectId);
     return tracked
       .filter((item) => item.enabled)
       .map((item) => {
         const latest = item.observations[0];
-        const previous = item.observations[1];
+        const history = buildDailyHistory(item.observations, range, timezone);
+        const sparkline = buildDailyHistory(item.observations, "7d", timezone).map(
+          ({ date, rank, observed }) => ({ date, rank, observed }),
+        );
         return {
           id: item.id,
           keyword: item.keyword,
@@ -279,7 +427,7 @@ export function createWorkspaceService({
           competition: latest?.competition ?? 0,
           opportunity: latest?.opportunity ?? 0,
           resultCount: latest?.resultCount ?? 0,
-          movement: buildMovement(previous?.rank ?? null, latest?.rank ?? null, item.keyword),
+          movement: movementAcrossRange(item.keyword, history),
           tags: item.tags,
           tracked: true as const,
           provenance: {
@@ -287,6 +435,8 @@ export function createWorkspaceService({
             confidence: latest?.confidence ?? "low",
             methodVersion: latest?.methodVersion ?? "pending",
           },
+          sparkline,
+          refreshState: latest ? ("fresh" as const) : ("pending" as const),
         };
       })
       .sort(
@@ -301,9 +451,10 @@ export function createWorkspaceService({
     keyword: string,
     appId: string,
     storefront: string,
+    maxAgeMs = 0,
   ) {
     const observedAt = new Date().toISOString();
-    const results = await provider.searchKeyword(keyword, storefront);
+    const results = await provider.searchKeyword(keyword, storefront, { maxAgeMs });
     const score = scoreKeyword(keyword, results, appId, observedAt);
 
     const [latestObservation] = await database
@@ -374,18 +525,25 @@ export function createWorkspaceService({
 
     if (!existing) throw new Error("Unable to create tracked keyword");
 
-    await persistObservation(
-      project.id,
-      existing.id,
-      existing.keyword,
-      project.appId,
-      project.storefront,
-    );
-
-    const watchlist = await buildWatchlist(project.id);
+    const watchlist = await buildWatchlist(project.id, "7d", project.scheduleTimezone);
     const match = watchlist.find((item) => item.id === existing.id);
     if (!match) throw new Error("Unable to read tracked keyword");
     return match;
+  }
+
+  async function trackKeywordsForProject(ownerId: string, projectId: string, keywords: string[]) {
+    const normalized = [
+      ...new Set(
+        keywords
+          .map((keyword) => keyword.trim().toLowerCase())
+          .filter((keyword) => keyword.length >= 2),
+      ),
+    ];
+    const items: WatchlistItem[] = [];
+    for (const keyword of normalized) {
+      items.push(await trackKeywordForProject(ownerId, projectId, { keyword }));
+    }
+    return items;
   }
 
   async function deleteTrackedKeywordForProject(
@@ -409,12 +567,125 @@ export function createWorkspaceService({
     return { deleted: true as const, id: trackedKeywordId };
   }
 
-  async function getWatchlistForProject(ownerId: string, projectId: string) {
-    await requireOwnedProject(ownerId, projectId);
+  async function getWatchlistForProject(
+    ownerId: string,
+    projectId: string,
+    range: HistoryRange = "7d",
+  ) {
+    const project = await requireOwnedProject(ownerId, projectId);
     return {
-      data: await buildWatchlist(projectId),
-      nextObservationAt: parseNextObservationAt(trackingSchedule),
+      data: await buildWatchlist(projectId, range, project.scheduleTimezone),
+      nextObservationAt: nextObservationAtForProject(project),
     };
+  }
+
+  async function getKeywordHistoryForProject(
+    ownerId: string,
+    projectId: string,
+    trackedKeywordId: string,
+    range: HistoryRange,
+  ): Promise<KeywordHistory> {
+    const project = await requireOwnedProject(ownerId, projectId);
+    const tracked = await listTrackedKeywordState(project.id);
+    const item = tracked.find((keyword) => keyword.id === trackedKeywordId && keyword.enabled);
+    if (!item) throw new Error("Tracked keyword not found");
+    const daily = buildDailyHistory(item.observations, range, project.scheduleTimezone);
+    const latest = item.observations[0];
+    return {
+      keywordId: item.id,
+      keyword: item.keyword,
+      range,
+      timeline: daily.map(({ date, label, rank, observed }) => ({ date, label, rank, observed })),
+      currentRank: latest?.rank ?? null,
+      movement: movementAcrossRange(item.keyword, daily),
+      lastObservedAt: latest?.observedAt ?? null,
+    };
+  }
+
+  async function getProjectSettings(ownerId: string, projectId: string): Promise<ProjectSettings> {
+    const project = await requireOwnedProject(ownerId, projectId);
+    return projectSummary(project).settings;
+  }
+
+  async function updateProjectSettings(
+    ownerId: string,
+    projectId: string,
+    input: ProjectSettings,
+  ): Promise<ProjectSettings> {
+    await requireOwnedProject(ownerId, projectId);
+    if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(input.time)) throw new Error("Invalid schedule time");
+    if (!isValidTimezone(input.timezone)) throw new Error("Invalid schedule timezone");
+    if (!["daily", "weekdays", "weekly"].includes(input.frequency)) {
+      throw new Error("Invalid schedule frequency");
+    }
+    if (!Number.isInteger(input.weekday) || input.weekday < 1 || input.weekday > 7) {
+      throw new Error("Invalid schedule weekday");
+    }
+    const [updated] = await database
+      .update(projects)
+      .set({
+        scheduleEnabled: input.enabled,
+        scheduleFrequency: input.frequency,
+        scheduleTime: input.time,
+        scheduleTimezone: input.timezone,
+        scheduleWeekday: input.weekday,
+      })
+      .where(eq(projects.id, projectId))
+      .returning();
+    if (!updated) throw new Error("Project not found");
+    return projectSummary(updated).settings;
+  }
+
+  async function createMarketForProject(ownerId: string, projectId: string, storefront: string) {
+    const source = await requireOwnedProject(ownerId, projectId);
+    const normalized = normalizeStorefront(storefront);
+    const [existing] = await database
+      .select()
+      .from(projects)
+      .where(
+        and(
+          eq(projects.ownerId, ownerId),
+          eq(projects.appId, source.appId),
+          eq(projects.storefront, normalized),
+        ),
+      )
+      .limit(1);
+    if (existing) return { project: projectSummary(existing), created: false as const };
+
+    const sourceKeywords = await database
+      .select()
+      .from(trackedKeywords)
+      .where(and(eq(trackedKeywords.projectId, source.id), eq(trackedKeywords.enabled, true)));
+    return database.transaction(async (transaction) => {
+      const [created] = await transaction
+        .insert(projects)
+        .values({
+          ownerId,
+          name: source.name,
+          appId: source.appId,
+          appName: source.appName,
+          storefront: normalized,
+          iconUrl: source.iconUrl,
+          scheduleEnabled: source.scheduleEnabled,
+          scheduleFrequency: source.scheduleFrequency,
+          scheduleTime: source.scheduleTime,
+          scheduleTimezone: source.scheduleTimezone,
+          scheduleWeekday: source.scheduleWeekday,
+        })
+        .returning();
+      if (!created) throw new Error("Unable to create market");
+      if (sourceKeywords.length > 0) {
+        await transaction.insert(trackedKeywords).values(
+          sourceKeywords.map((keyword) => ({
+            projectId: created.id,
+            keyword: keyword.keyword,
+            enabled: true,
+            tags: keyword.tags,
+          })),
+        );
+      }
+      return { project: projectSummary(created), created: true as const };
+    });
   }
 
   async function discoverKeyword(input: { term: string; country?: string; appId?: string }) {
@@ -427,7 +698,7 @@ export function createWorkspaceService({
 
   async function getPulseForProject(ownerId: string, projectId: string): Promise<ProjectPulse> {
     const project = await requireOwnedProject(ownerId, projectId);
-    const keywords = await buildWatchlist(project.id);
+    const keywords = await buildWatchlist(project.id, "7d", project.scheduleTimezone);
     const tracked = await listTrackedKeywordState(project.id);
     const signalRows = await database
       .select()
@@ -436,38 +707,21 @@ export function createWorkspaceService({
       .orderBy(desc(signals.createdAt))
       .limit(8);
 
-    const groupedTimeline = [
-      ...new Set(
-        tracked.flatMap((item) => item.observations.map((observation) => observation.observedAt)),
-      ),
-    ]
-      .sort((left, right) => left.localeCompare(right))
-      .slice(-7);
-
-    const timeline: TimelinePoint[] = groupedTimeline.map((observedAt) => ({
-      observedAt,
-      label: new Intl.DateTimeFormat("en-US", {
-        month: "short",
-        day: "numeric",
-        timeZone: "UTC",
-      }).format(new Date(observedAt)),
+    const domain = dayDomain("7d", project.scheduleTimezone);
+    const timeline = domain.map((day) => ({
+      observedAt: day,
+      label: dayLabel(day, "7d"),
     }));
-
-    const series = createSeries(
-      timeline,
-      tracked
-        .filter((item) => item.observations.length > 0)
-        .map((item) => ({
-          keyword: item.keyword,
-          entries: item.observations
-            .slice()
-            .sort((left, right) => left.observedAt.localeCompare(right.observedAt))
-            .map((observation) => ({
-              observedAt: observation.observedAt,
-              rank: observation.rank,
-            })),
-        })),
-    );
+    const series = tracked
+      .filter((item) => item.observations.length > 0)
+      .slice(0, SERIES_COLORS.length)
+      .map((item, index) => ({
+        keyword: item.keyword,
+        color: SERIES_COLORS[index] ?? SERIES_COLORS[0],
+        values: buildDailyHistory(item.observations, "7d", project.scheduleTimezone).map(
+          (point) => point.rank,
+        ),
+      }));
 
     return {
       project: projectSummary(project),
@@ -478,13 +732,13 @@ export function createWorkspaceService({
       }),
       series,
       timeline,
-      nextObservationAt: parseNextObservationAt(trackingSchedule),
+      nextObservationAt: nextObservationAtForProject(project),
     };
   }
 
   async function exportProjectCsv(ownerId: string, projectId: string) {
-    await requireOwnedProject(ownerId, projectId);
-    const rows = await buildWatchlist(projectId);
+    const project = await requireOwnedProject(ownerId, projectId);
+    const rows = await buildWatchlist(projectId, "7d", project.scheduleTimezone);
     return toCsv(
       rows.map(({ keyword, rank, competition, opportunity, movement, tags }) => ({
         keyword,
@@ -507,13 +761,15 @@ export function createWorkspaceService({
       .orderBy(asc(signals.createdAt));
 
     return {
-      version: 2,
+      version: 3,
       exportedAt: new Date().toISOString(),
       project: {
         name: project.name,
         appId: project.appId,
         appName: project.appName,
         storefront: project.storefront,
+        iconUrl: project.iconUrl,
+        settings: projectSummary(project).settings,
       },
       trackedKeywords: tracked.map((item) => ({
         keyword: item.keyword,
@@ -543,6 +799,12 @@ export function createWorkspaceService({
           appId: value.project.appId,
           appName: value.project.appName,
           storefront: normalizeStorefront(value.project.storefront),
+          iconUrl: value.project.iconUrl?.trim() ?? project.iconUrl,
+          scheduleEnabled: value.project.settings?.enabled ?? project.scheduleEnabled,
+          scheduleFrequency: value.project.settings?.frequency ?? project.scheduleFrequency,
+          scheduleTime: value.project.settings?.time ?? project.scheduleTime,
+          scheduleTimezone: value.project.settings?.timezone ?? project.scheduleTimezone,
+          scheduleWeekday: value.project.settings?.weekday ?? project.scheduleWeekday,
         })
         .where(eq(projects.id, project.id));
 
@@ -620,6 +882,163 @@ export function createWorkspaceService({
     return created;
   }
 
+  async function createObservationRun(
+    ownerId: string,
+    projectId: string,
+    trigger: "manual" | "scheduled" | "initial",
+    trackedKeywordIds?: string[],
+  ): Promise<ObservationRunSummary> {
+    await requireOwnedProject(ownerId, projectId);
+    const requestedIds = trackedKeywordIds ? [...new Set(trackedKeywordIds)] : undefined;
+    if (requestedIds && requestedIds.length > 0) {
+      const owned = await database
+        .select({ id: trackedKeywords.id })
+        .from(trackedKeywords)
+        .where(
+          and(
+            eq(trackedKeywords.projectId, projectId),
+            eq(trackedKeywords.enabled, true),
+            inArray(trackedKeywords.id, requestedIds),
+          ),
+        );
+      if (owned.length !== requestedIds.length)
+        throw new Error("Invalid tracked keyword selection");
+    }
+    if (trigger === "manual") {
+      const [latestManual] = await database
+        .select({ startedAt: jobRuns.startedAt })
+        .from(jobRuns)
+        .where(and(eq(jobRuns.projectId, projectId), eq(jobRuns.trigger, "manual")))
+        .orderBy(desc(jobRuns.startedAt))
+        .limit(1);
+      if (latestManual) {
+        const eligibleAt = new Date(latestManual.startedAt).getTime() + MANUAL_REFRESH_COOLDOWN_MS;
+        if (eligibleAt > Date.now()) {
+          throw new ManualRefreshCooldownError(Math.ceil((eligibleAt - Date.now()) / 1000));
+        }
+      }
+    }
+    const requestedCount =
+      requestedIds?.length ??
+      (
+        await database
+          .select({ id: trackedKeywords.id })
+          .from(trackedKeywords)
+          .where(and(eq(trackedKeywords.projectId, projectId), eq(trackedKeywords.enabled, true)))
+      ).length;
+    const [created] = await database
+      .insert(jobRuns)
+      .values({
+        jobName: "rank-observation",
+        projectId,
+        trigger,
+        status: "queued",
+        requestedCount,
+      })
+      .returning();
+    if (!created) throw new Error("Unable to create observation run");
+    return observationRunSummary(created);
+  }
+
+  async function createSystemObservationRun(
+    projectId: string,
+    trigger: "scheduled" | "initial" = "scheduled",
+    trackedKeywordIds?: string[],
+  ): Promise<ObservationRunSummary> {
+    await getProjectById(projectId);
+    const requestedCount =
+      trackedKeywordIds?.length ??
+      (
+        await database
+          .select({ id: trackedKeywords.id })
+          .from(trackedKeywords)
+          .where(and(eq(trackedKeywords.projectId, projectId), eq(trackedKeywords.enabled, true)))
+      ).length;
+    const [created] = await database
+      .insert(jobRuns)
+      .values({
+        jobName: "rank-observation",
+        projectId,
+        trigger,
+        status: "queued",
+        requestedCount,
+      })
+      .returning();
+    if (!created) throw new Error("Unable to create observation run");
+    return observationRunSummary(created);
+  }
+
+  async function listScheduledProjects() {
+    const rows = await database
+      .select()
+      .from(projects)
+      .where(eq(projects.scheduleEnabled, true))
+      .orderBy(asc(projects.createdAt));
+    return rows.map(projectSummary);
+  }
+
+  function observationRunSummary(run: typeof jobRuns.$inferSelect): ObservationRunSummary {
+    const nextEligibleManualAt =
+      run.trigger === "manual"
+        ? new Date(new Date(run.startedAt).getTime() + MANUAL_REFRESH_COOLDOWN_MS).toISOString()
+        : null;
+    return {
+      id: run.id,
+      projectId: run.projectId,
+      trigger: run.trigger === "manual" || run.trigger === "initial" ? run.trigger : "scheduled",
+      status:
+        run.status === "queued" ||
+        run.status === "running" ||
+        run.status === "partial" ||
+        run.status === "failed"
+          ? run.status
+          : "completed",
+      requestedCount: run.requestedCount,
+      observedCount: run.observedCount,
+      failedCount: run.failedCount,
+      failures: run.failures,
+      startedAt: asIso(run.startedAt),
+      finishedAt: run.finishedAt ? asIso(run.finishedAt) : null,
+      nextEligibleManualAt,
+    };
+  }
+
+  async function startObservationRun(jobRunId: string) {
+    await database.update(jobRuns).set({ status: "running" }).where(eq(jobRuns.id, jobRunId));
+  }
+
+  async function finishObservationRun(jobRunId: string, result: ObservationRunResult) {
+    const failedCount = result.failedKeywords.length;
+    const [updated] = await database
+      .update(jobRuns)
+      .set({
+        status:
+          failedCount === 0 ? "completed" : result.observedKeywords === 0 ? "failed" : "partial",
+        observedCount: result.observedKeywords,
+        failedCount,
+        failures: result.failedKeywords,
+        detail: `${result.observedKeywords} keywords observed, ${failedCount} failed`,
+        finishedAt: new Date(),
+      })
+      .where(eq(jobRuns.id, jobRunId))
+      .returning();
+    return updated ? observationRunSummary(updated) : null;
+  }
+
+  async function getLatestObservationRunForProject(
+    ownerId: string,
+    projectId: string,
+  ): Promise<ObservationRunSummary | null> {
+    await requireOwnedProject(ownerId, projectId);
+    const [latest] = await database
+      .select()
+      .from(jobRuns)
+      .where(eq(jobRuns.projectId, projectId))
+      .orderBy(desc(jobRuns.startedAt))
+      .limit(1);
+    return latest ? observationRunSummary(latest) : null;
+  }
+
   async function finishJobRun(jobRunId: string, status: "completed" | "failed", detail?: string) {
     await database
       .update(jobRuns)
@@ -627,29 +1046,51 @@ export function createWorkspaceService({
       .where(eq(jobRuns.id, jobRunId));
   }
 
-  async function observeProject(projectId: string): Promise<ObservationRunResult> {
+  async function observeProject(
+    projectId: string,
+    trackedKeywordIds?: string[],
+  ): Promise<ObservationRunResult> {
     const project = await getProjectById(projectId);
+    const conditions = [
+      eq(trackedKeywords.projectId, project.id),
+      eq(trackedKeywords.enabled, true),
+    ];
+    if (trackedKeywordIds && trackedKeywordIds.length > 0) {
+      conditions.push(inArray(trackedKeywords.id, trackedKeywordIds));
+    }
     const tracked = await database
       .select()
       .from(trackedKeywords)
-      .where(and(eq(trackedKeywords.projectId, project.id), eq(trackedKeywords.enabled, true)))
+      .where(and(...conditions))
       .orderBy(asc(trackedKeywords.createdAt));
 
     let generatedSignals = 0;
+    let observedKeywords = 0;
+    const failedKeywords: Array<{ keyword: string; message: string }> = [];
     for (const item of tracked) {
-      const { signal } = await persistObservation(
-        project.id,
-        item.id,
-        item.keyword,
-        project.appId,
-        project.storefront,
-      );
-      if (signal) generatedSignals += 1;
+      try {
+        const { signal } = await persistObservation(
+          project.id,
+          item.id,
+          item.keyword,
+          project.appId,
+          project.storefront,
+          0,
+        );
+        observedKeywords += 1;
+        if (signal) generatedSignals += 1;
+      } catch (error) {
+        failedKeywords.push({
+          keyword: item.keyword,
+          message: error instanceof Error ? error.message : "Unknown observation failure",
+        });
+      }
     }
 
     return {
-      observedKeywords: tracked.length,
+      observedKeywords,
       generatedSignals,
+      failedKeywords,
       observedAt: new Date().toISOString(),
     };
   }
@@ -661,13 +1102,15 @@ export function createWorkspaceService({
       .orderBy(asc(projects.createdAt));
     let observedKeywords = 0;
     let generatedSignals = 0;
+    const failedKeywords: Array<{ keyword: string; message: string }> = [];
     const observedAt = new Date().toISOString();
     for (const project of allProjects) {
       const result = await observeProject(project.id);
       observedKeywords += result.observedKeywords;
       generatedSignals += result.generatedSignals;
+      failedKeywords.push(...result.failedKeywords);
     }
-    return { observedKeywords, generatedSignals, observedAt };
+    return { observedKeywords, generatedSignals, failedKeywords, observedAt };
   }
 
   async function getLatestHealth() {
@@ -679,7 +1122,6 @@ export function createWorkspaceService({
     const [latestJob] = await database
       .select()
       .from(jobRuns)
-      .where(eq(jobRuns.jobName, "daily-rank-observation"))
       .orderBy(desc(jobRuns.startedAt))
       .limit(1);
     return {
@@ -687,7 +1129,7 @@ export function createWorkspaceService({
       worker:
         latestJob?.status === "completed"
           ? "healthy"
-          : latestJob?.status === "failed"
+          : latestJob?.status === "failed" || latestJob?.status === "partial"
             ? "degraded"
             : "configured",
       lastObservationAt: latestObservation ? asIso(latestObservation.observedAt) : null,
@@ -697,19 +1139,30 @@ export function createWorkspaceService({
 
   return {
     backupProject,
+    createMarketForProject,
+    createObservationRun,
+    createSystemObservationRun,
     createJobRun,
     createProjectForOwner,
     discoverKeyword,
     exportProjectCsv,
     finishJobRun,
+    finishObservationRun,
+    getKeywordHistoryForProject,
     getLatestHealth,
+    getLatestObservationRunForProject,
+    getProjectSettings,
     getPulseForProject,
     getWatchlistForProject,
     listProjectsForOwner,
+    listScheduledProjects,
     observeAllProjects,
     observeProject,
+    startObservationRun,
     restoreProject,
     deleteTrackedKeywordForProject,
     trackKeywordForProject,
+    trackKeywordsForProject,
+    updateProjectSettings,
   };
 }
