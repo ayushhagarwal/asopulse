@@ -142,7 +142,7 @@ jobs:
 
   publish-release:
     name: publish-github-release
-    needs: [validate, publish-images]
+    needs: [validate, publish-images, scan-published-images]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -171,3 +171,36 @@ jobs:
             See [CHANGELOG.md](https://github.com/${{ github.repository }}/blob/${{ needs.validate.outputs.version }}/CHANGELOG.md) and the [self-hosting upgrade guide](https://github.com/${{ github.repository }}/blob/${{ needs.validate.outputs.version }}/docs/self-hosting.md).
 
             Published images: `asopulse-api`, `asopulse-worker`, and `asopulse-web` on `ghcr.io/${{ github.repository_owner }}`.
+
+  scan-published-images:
+    name: scan-published-${{ matrix.image }}
+    needs: [validate, publish-images]
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      packages: read
+      security-events: write
+    strategy:
+      fail-fast: false
+      matrix:
+        image: [api, worker, web]
+    steps:
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Scan published image
+        uses: anchore/scan-action@1638637db639e0ade3258b51db49a9a137574c3e # v6
+        with:
+          image: ghcr.io/${{ github.repository_owner }}/asopulse-${{ matrix.image }}:${{ needs.validate.outputs.version }}
+          fail-build: true
+          severity-cutoff: high
+          only-fixed: true
+          output-format: sarif
+          output-file: results.sarif
+      - name: Upload scan result
+        uses: github/codeql-action/upload-sarif@02c5e83432fe5497fd85b873b6c9f16a8578e1d9 # v3
+        with:
+          sarif_file: results.sarif
