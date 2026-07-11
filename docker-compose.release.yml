@@ -1,28 +1,29 @@
 services:
   postgres:
     image: postgres:17-alpine
-    ports: ["127.0.0.1:5432:5432"]
+    restart: unless-stopped
     environment:
       POSTGRES_DB: asopulse
       POSTGRES_USER: asopulse
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-asopulse-local}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}
     volumes: ["postgres-data:/var/lib/postgresql/data"]
     healthcheck: { test: ["CMD-SHELL", "pg_isready -U asopulse"], interval: 5s, timeout: 3s, retries: 10 }
   redis:
     image: redis:7-alpine
-    ports: ["127.0.0.1:6379:6379"]
+    restart: unless-stopped
     command: redis-server --appendonly yes
     volumes: ["redis-data:/data"]
     healthcheck: { test: ["CMD", "redis-cli", "ping"], interval: 5s, timeout: 3s, retries: 10 }
   api:
-    build: { context: ".", target: api }
+    image: ghcr.io/ayushhagarwal/asopulse-api:${ASOPULSE_VERSION:?Set ASOPULSE_VERSION}
+    restart: unless-stopped
     environment:
-      DATABASE_URL: postgresql://asopulse:${POSTGRES_PASSWORD:-asopulse-local}@postgres:5432/asopulse
+      DATABASE_URL: postgresql://asopulse:${POSTGRES_PASSWORD}@postgres:5432/asopulse
       REDIS_URL: redis://redis:6379
-      SESSION_SECRET: ${SESSION_SECRET:-replace-this-before-exposing-the-service}
-      NODE_ENV: ${NODE_ENV:-development}
+      SESSION_SECRET: ${SESSION_SECRET:?Set SESSION_SECRET}
+      WEB_ORIGIN: ${WEB_ORIGIN:?Set WEB_ORIGIN}
+      NODE_ENV: production
       API_DOCS_ENABLED: ${API_DOCS_ENABLED:-false}
-      WEB_ORIGIN: ${WEB_ORIGIN:-http://localhost:8080}
       PORT: 4100
     depends_on:
       postgres: { condition: service_healthy }
@@ -33,16 +34,17 @@ services:
       timeout: 3s
       retries: 12
   worker:
-    build: { context: ".", target: worker }
+    image: ghcr.io/ayushhagarwal/asopulse-worker:${ASOPULSE_VERSION:?Set ASOPULSE_VERSION}
+    restart: unless-stopped
     environment:
-      DATABASE_URL: postgresql://asopulse:${POSTGRES_PASSWORD:-asopulse-local}@postgres:5432/asopulse
+      DATABASE_URL: postgresql://asopulse:${POSTGRES_PASSWORD}@postgres:5432/asopulse
       REDIS_URL: redis://redis:6379
-      API_INTERNAL_URL: http://api:4100
     depends_on:
       api: { condition: service_healthy }
   web:
-    build: { context: ".", dockerfile: apps/web/Dockerfile }
-    ports: ["8080:8080"]
+    image: ghcr.io/ayushhagarwal/asopulse-web:${ASOPULSE_VERSION:?Set ASOPULSE_VERSION}
+    restart: unless-stopped
+    ports: ["127.0.0.1:8080:8080"]
     depends_on:
       api: { condition: service_healthy }
 

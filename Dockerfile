@@ -1,15 +1,22 @@
-FROM node:24-bookworm-slim AS base
+FROM node:24-bookworm-slim AS build
 ENV PNPM_HOME=/pnpm
 ENV PATH=$PNPM_HOME:$PATH
 ENV CI=true
 RUN corepack enable
 WORKDIR /app
 COPY . .
-RUN pnpm install --frozen-lockfile && pnpm build
+RUN pnpm install --frozen-lockfile \
+  && pnpm build \
+  && pnpm --filter @asopulse/api --prod deploy /out/api --legacy \
+  && pnpm --filter @asopulse/worker --prod deploy /out/worker --legacy
 
-FROM base AS api
+FROM gcr.io/distroless/nodejs24-debian13:nonroot AS api
+WORKDIR /app
+COPY --from=build --chown=nonroot:nonroot /out/api/ .
 EXPOSE 4100
-CMD ["sh", "-c", "pnpm --filter @asopulse/db db:migrate && node apps/api/dist/server.js"]
+CMD ["dist/container.js"]
 
-FROM base AS worker
-CMD ["node", "apps/worker/dist/worker.js"]
+FROM gcr.io/distroless/nodejs24-debian13:nonroot AS worker
+WORKDIR /app
+COPY --from=build --chown=nonroot:nonroot /out/worker/ .
+CMD ["dist/worker.js"]

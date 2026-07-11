@@ -111,7 +111,8 @@ const users = new Map<
 >();
 
 const authStore: AuthStore = {
-  async createUser(input) {
+  async createFirstUser(input) {
+    if (users.size > 0) return null;
     const user = {
       id: ownerId,
       username: input.username,
@@ -429,5 +430,34 @@ describe("ASOpulse API", () => {
     });
     expect(response.statusCode).toBe(201);
     expect(response.json()).toMatchObject({ created: true, project: { storefront: "IN" } });
+  });
+
+  test("rate limits repeated login failures", async () => {
+    let response = await app.inject({
+      method: "POST",
+      url: "/api/v1/auth/login",
+      payload: { username: "missing", password: "incorrect-password" },
+    });
+    for (let attempt = 1; attempt < 11; attempt += 1) {
+      response = await app.inject({
+        method: "POST",
+        url: "/api/v1/auth/login",
+        payload: { username: "missing", password: "incorrect-password" },
+      });
+    }
+    expect(response.statusCode).toBe(429);
+  });
+
+  test("rejects placeholder session secrets in production", () => {
+    if (!workspace || !authStore) throw new Error("Test services are required");
+    const previousNodeEnv = process.env.NODE_ENV;
+    const previousSecret = process.env.SESSION_SECRET;
+    process.env.NODE_ENV = "production";
+    process.env.SESSION_SECRET = "replace-this-before-exposing-the-service";
+    expect(() => buildApp({ provider, workspace, authStore })).toThrow(/SESSION_SECRET/);
+    if (previousNodeEnv === undefined) delete process.env.NODE_ENV;
+    else process.env.NODE_ENV = previousNodeEnv;
+    if (previousSecret === undefined) delete process.env.SESSION_SECRET;
+    else process.env.SESSION_SECRET = previousSecret;
   });
 });
