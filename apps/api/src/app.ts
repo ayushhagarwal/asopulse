@@ -10,6 +10,7 @@ import { createDatabase } from "@asopulse/db";
 import { AppleSearchProvider, type AppStoreProvider } from "@asopulse/providers";
 import cookie from "@fastify/cookie";
 import cors from "@fastify/cors";
+import helmet from "@fastify/helmet";
 import swagger from "@fastify/swagger";
 import swaggerUi from "@fastify/swagger-ui";
 import { type ConnectionOptions, Queue } from "bullmq";
@@ -20,6 +21,7 @@ import {
   registerAuth,
   requireSessionUser,
 } from "./auth.js";
+import { createRateLimitGuard } from "./rate-limit.js";
 
 type WorkspaceService = ReturnType<typeof createWorkspaceService>;
 type ObservationQueue = Pick<
@@ -97,16 +99,28 @@ export function buildApp({
   authStore?: AuthStore;
   observationQueue?: ObservationQueue;
 } = {}) {
+  const sessionSecret = process.env.SESSION_SECRET ?? "development-only-secret-change-me";
+  if (
+    process.env.NODE_ENV === "production" &&
+    (sessionSecret.length < 32 || /development-only|replace-this|change-me/i.test(sessionSecret))
+  ) {
+    throw new Error(
+      "SESSION_SECRET must be a unique value of at least 32 characters in production",
+    );
+  }
   const app = Fastify({ logger: process.env.NODE_ENV !== "test" });
   void app.register(cors, {
     origin: process.env.WEB_ORIGIN ?? "http://localhost:5173",
     credentials: true,
   });
   void app.register(cookie, {
-    secret: process.env.SESSION_SECRET ?? "development-only-secret-change-me",
+    secret: sessionSecret,
   });
+  void app.register(helmet, { contentSecurityPolicy: false });
   void app.register(swagger, { openapi: { info: { title: "ASOpulse API", version: "0.1.0" } } });
-  void app.register(swaggerUi, { routePrefix: "/docs" });
+  if (process.env.NODE_ENV !== "production" || process.env.API_DOCS_ENABLED === "true") {
+    void app.register(swaggerUi, { routePrefix: "/docs" });
+  }
 
   const databaseUrl = process.env.DATABASE_URL;
   const database =
@@ -139,6 +153,7 @@ export function buildApp({
 
   app.get<{ Querystring: { term?: string; country?: string } }>(
     "/api/v1/apps/search",
+    { preHandler: createRateLimitGuard({ max: 30, windowMs: 60_000 }) },
     async (request, reply) => {
       const term = request.query.term?.trim() ?? "";
       if (term.length < 2) {
@@ -150,6 +165,7 @@ export function buildApp({
 
   app.get<{ Querystring: { term?: string; country?: string; appId?: string } }>(
     "/api/v1/keywords/discover",
+    { preHandler: createRateLimitGuard({ max: 30, windowMs: 60_000 }) },
     async (request, reply) => {
       const term = request.query.term?.trim() ?? "";
       if (term.length < 2) {
@@ -401,39 +417,43 @@ export function buildApp({
   app.post<{
     Params: { projectId: string };
     Body: { trackedKeywordIds?: string[] };
-  }>("/api/v1/projects/:projectId/observation-runs", async (request, reply) => {
-    const user = await requireSessionUser(request, reply, runtimeAuthStore);
-    if (!user) return;
-    try {
-      const ids = request.body?.trackedKeywordIds;
-      if (
-        ids !== undefined &&
-        (!Array.isArray(ids) || ids.length > 100 || !ids.every((id) => typeof id === "string"))
-      ) {
-        return reply.code(400).send({ error: "trackedKeywordIds must be an array of ids" });
+  }>(
+    "/api/v1/projects/:projectId/observation-runs",
+    { preHandler: createRateLimitGuard({ max: 8, windowMs: 15 * 60_000 }) },
+    async (request, reply) => {
+      const user = await requireSessionUser(request, reply, runtimeAuthStore);
+      if (!user) return;
+      try {
+        const ids = request.body?.trackedKeywordIds;
+        if (
+          ids !== undefined &&
+          (!Array.isArray(ids) || ids.length > 100 || !ids.every((id) => typeof id === "string"))
+        ) {
+          return reply.code(400).send({ error: "trackedKeywordIds must be an array of ids" });
+        }
+        const run = await runtimeWorkspace.createObservationRun(
+          user.id,
+          request.params.projectId,
+          "manual",
+          ids,
+        );
+        await runtimeObservationQueue?.add("observe-project", {
+          projectId: request.params.projectId,
+          ...(ids && ids.length > 0 ? { trackedKeywordIds: ids } : {}),
+          runId: run.id,
+          trigger: "manual",
+        });
+        return reply.code(202).send({ data: run });
+      } catch (error) {
+        if (error instanceof ManualRefreshCooldownError) {
+          return reply
+            .code(429)
+            .send({ error: error.message, retryAfterSeconds: error.retryAfterSeconds });
+        }
+        return handleRouteError(error, reply);
       }
-      const run = await runtimeWorkspace.createObservationRun(
-        user.id,
-        request.params.projectId,
-        "manual",
-        ids,
-      );
-      await runtimeObservationQueue?.add("observe-project", {
-        projectId: request.params.projectId,
-        ...(ids && ids.length > 0 ? { trackedKeywordIds: ids } : {}),
-        runId: run.id,
-        trigger: "manual",
-      });
-      return reply.code(202).send({ data: run });
-    } catch (error) {
-      if (error instanceof ManualRefreshCooldownError) {
-        return reply
-          .code(429)
-          .send({ error: error.message, retryAfterSeconds: error.retryAfterSeconds });
-      }
-      return handleRouteError(error, reply);
-    }
-  });
+    },
+  );
 
   app.get<{ Params: { projectId: string } }>(
     "/api/v1/projects/:projectId/observation-runs/latest",
