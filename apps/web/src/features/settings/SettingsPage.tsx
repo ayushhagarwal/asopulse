@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { motion } from "motion/react";
-import { useEffect, useState } from "react";
+import { AnimatePresence, motion } from "motion/react";
+import { useEffect, useRef, useState } from "react";
 import { CheckIcon, DownloadIcon } from "../../components/icons";
 import { apiRequest } from "../../lib/api";
 import { useWorkspace } from "../../lib/workspace";
@@ -28,10 +28,12 @@ const DEFAULT_SETTINGS: Settings = {
 };
 
 export function SettingsPage() {
-  const { selectedProject } = useWorkspace();
+  const { projects, selectedProject, setSelectedProjectId } = useWorkspace();
   const queryClient = useQueryClient();
   const [draft, setDraft] = useState<Settings>(selectedProject.settings ?? DEFAULT_SETTINGS);
   const [importMessage, setImportMessage] = useState("");
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const deleteCancelRef = useRef<HTMLButtonElement>(null);
   const settings = useQuery({
     queryKey: ["project-settings", selectedProject.id],
     queryFn: () => apiRequest<{ data: Settings }>(`/projects/${selectedProject.id}/settings`),
@@ -62,6 +64,31 @@ export function SettingsPage() {
       ]);
     },
   });
+  const deleteProject = useMutation({
+    mutationFn: () =>
+      apiRequest<{ deleted: true; id: string }>(`/projects/${selectedProject.id}`, {
+        method: "DELETE",
+      }),
+    onSuccess: async () => {
+      const nextProject = projects.find((project) => project.id !== selectedProject.id);
+      setDeleteOpen(false);
+      setSelectedProjectId(nextProject?.id ?? "");
+      await queryClient.invalidateQueries({ queryKey: ["projects"] });
+    },
+  });
+
+  useEffect(() => {
+    if (!deleteOpen) return;
+    const frame = requestAnimationFrame(() => deleteCancelRef.current?.focus());
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && !deleteProject.isPending) setDeleteOpen(false);
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => {
+      cancelAnimationFrame(frame);
+      window.removeEventListener("keydown", onKeyDown);
+    };
+  }, [deleteOpen, deleteProject.isPending]);
 
   function downloadBackup() {
     const anchor = document.createElement("a");
@@ -266,6 +293,27 @@ export function SettingsPage() {
                 : "Worker needs attention"}
           </span>
         </section>
+        <section className="settings-section danger-settings">
+          <div>
+            <h2>Delete app workspace</h2>
+            <p>
+              Remove {selectedProject.name} from {selectedProject.storefront}, including its
+              keywords and ranking history. Other markets remain unchanged.
+            </p>
+          </div>
+          <div className="danger-actions">
+            <button
+              type="button"
+              className="danger-button"
+              onClick={() => {
+                deleteProject.reset();
+                setDeleteOpen(true);
+              }}
+            >
+              Delete app workspace
+            </button>
+          </div>
+        </section>
         {save.isError ? (
           <p className="inline-error">
             The schedule could not be saved. Check the values and try again.
@@ -282,6 +330,59 @@ export function SettingsPage() {
           </button>
         </div>
       </form>
+      <AnimatePresence>
+        {deleteOpen ? (
+          <motion.div
+            className="command-backdrop"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onMouseDown={() => {
+              if (!deleteProject.isPending) setDeleteOpen(false);
+            }}
+          >
+            <motion.div
+              className="delete-project-dialog"
+              role="alertdialog"
+              aria-modal="true"
+              aria-labelledby="delete-project-title"
+              aria-describedby="delete-project-description"
+              initial={{ opacity: 0, y: 10, scale: 0.99 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: 8, scale: 0.99 }}
+              onMouseDown={(event) => event.stopPropagation()}
+            >
+              <h2 id="delete-project-title">Delete {selectedProject.name}?</h2>
+              <p id="delete-project-description">
+                This permanently deletes the {selectedProject.storefront} workspace, all tracked
+                keywords, ranking observations, signals, and refresh history. This cannot be undone.
+              </p>
+              {deleteProject.isError ? (
+                <p className="inline-error">The app workspace could not be deleted. Try again.</p>
+              ) : null}
+              <div className="delete-project-actions">
+                <button
+                  ref={deleteCancelRef}
+                  type="button"
+                  className="secondary-button"
+                  disabled={deleteProject.isPending}
+                  onClick={() => setDeleteOpen(false)}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  className="danger-button"
+                  disabled={deleteProject.isPending}
+                  onClick={() => deleteProject.mutate()}
+                >
+                  {deleteProject.isPending ? "Deleting…" : "Delete permanently"}
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        ) : null}
+      </AnimatePresence>
     </motion.div>
   );
 }
