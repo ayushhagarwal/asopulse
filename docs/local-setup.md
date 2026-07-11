@@ -5,7 +5,8 @@ This guide is for day-to-day development on a laptop.
 ## Requirements
 
 - Node.js 20 or newer
-- pnpm 11
+- Node.js 24 is the CI and container baseline; Node.js 20+ remains supported for development.
+- pnpm 11.8 or newer
 - Docker Desktop, or your own PostgreSQL and Redis instances
 
 ## 1) Install dependencies
@@ -29,6 +30,7 @@ At minimum, set:
 - `REDIS_URL`
 - `SESSION_SECRET`
 - `WEB_ORIGIN` if you are not using the default Vite URL
+- `NODE_ENV=development`
 
 Keep the password in `DATABASE_URL` in sync with `POSTGRES_PASSWORD`.
 
@@ -82,3 +84,4 @@ pnpm build
   migration command.
 - If you change schema or migration files, rerun `db:migrate` against a fresh database.
 - If the UI looks stale, restart `pnpm dev` after rebuilding shared packages.
+- `TRACKING_SCHEDULE` is obsolete. Configure schedule frequency, local time, and timezone per project in Settings.

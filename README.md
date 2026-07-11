@@ -1,60 +1,125 @@
 # ASOpulse
 
-ASOpulse is an open-source, public-data-first App Store keyword workspace.
-It helps you track current rankings, discover new keywords, and turn observable store data into
-transparent signals without inventing search-volume metrics.
+**A transparent, self-hosted App Store keyword workspace.** Track daily rankings, research keywords, and understand every signal without invented search-volume metrics.
 
-| [Overview](#overview) | [Quick Start](#quick-start) | [Local Setup](docs/local-setup.md) | [Self-Hosting](docs/self-hosting.md) | [Contributing](CONTRIBUTING.md) | [Architecture](docs/architecture.md) | [License](#license) |
-| --- | --- | --- | --- | --- | --- | --- |
+[![CI](https://github.com/ayushhagarwal/asopulse/actions/workflows/ci.yml/badge.svg)](https://github.com/ayushhagarwal/asopulse/actions/workflows/ci.yml)
+[![CodeQL](https://github.com/ayushhagarwal/asopulse/actions/workflows/codeql.yml/badge.svg)](https://github.com/ayushhagarwal/asopulse/actions/workflows/codeql.yml)
+[![License: AGPL-3.0](https://img.shields.io/badge/license-AGPL--3.0--only-0b4f2d)](LICENSE)
+[![Release](https://img.shields.io/github/v/release/ayushhagarwal/asopulse?include_prereleases)](https://github.com/ayushhagarwal/asopulse/releases)
+
+| [Overview](#overview) | [Quick start](#quick-start) | [Self-host](#self-host) | [Screenshots](#screenshots) | [Architecture](#architecture) | [Security](#security) | [Contributing](#contributing) | [Roadmap](#roadmap) | [License](#license) |
+|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
+
+> **Project status:** Early release (`v0.x`). The backup format is versioned and migrations preserve existing observations, but review release notes before every upgrade.
 
 ## Overview
 
-ASOpulse is designed to stay calm, minimal, and traceable.
+ASOpulse keeps one independent dataset per app and App Store market. It records daily keyword positions, preserves missing observations as gaps, and shows exactly when and how each derived metric was produced.
 
-- Pulse surfaces rank movement and notable changes.
-- Discover helps you research new keyword opportunities.
-- Track keeps your current keywords organized and monitored.
-- Settings covers schedules, retention, backup and restore, and appearance.
+- **Pulse:** freshness, actionable signals, and top movers without a dashboard-sized chart.
+- **Track:** searchable and sortable keyword table, 7/30/90-day movement, sparklines, selected refreshes, and rank history through position 200.
+- **Discover:** research based on observable public App Store results—never fabricated volume.
+- **Markets:** switch between saved storefronts while keeping their histories isolated.
+- **Scheduling:** daily, weekdays, or weekly observations at a local time and IANA timezone.
+- **Ownership:** PostgreSQL is authoritative, Redis/BullMQ coordinates work, and telemetry is off by default.
 
-V1 intentionally excludes competitors, reviews, App Store Connect, Apple Ads, Google Play, teams,
-billing, AI writing, and native wrappers.
+ASOpulse currently targets Apple App Store public search data. It does **not** include App Store Connect, Apple Ads, Google Play, teams, billing, AI copywriting, competitor data dumps, or review scraping.
 
-## Quick Start
+## Quick start
+
+The fastest local evaluation uses Docker Compose:
 
 ```bash
-pnpm install
+git clone https://github.com/ayushhagarwal/asopulse.git
+cd asopulse
 cp .env.example .env
-docker compose up -d postgres redis
-pnpm --filter @asopulse/db db:migrate
-pnpm dev
+# Replace POSTGRES_PASSWORD and SESSION_SECRET in .env.
+docker compose up -d --build
 ```
 
-The web app runs at `http://localhost:5173` and the API runs at `http://localhost:4100`.
-Use the local setup guide for a guided development flow and the self-hosting guide for the full
-Docker-based stack.
+Open <http://localhost:8080>, create the first owner account, and add an app. Check health with:
 
-## Local Setup
+```bash
+docker compose ps
+docker compose logs --tail=100 api worker
+```
 
-For the complete developer workflow, see [docs/local-setup.md](docs/local-setup.md).
-That guide covers dependencies, environment variables, PostgreSQL, Redis, migrations, and the
-recommended local run loop.
+For source development with hot reload, follow [Local setup](docs/local-setup.md).
 
-## Self-Hosting
+## Self-host
 
-For production-style Docker hosting, see [docs/self-hosting.md](docs/self-hosting.md).
-It explains how to create PostgreSQL and Redis with Compose, configure secrets, run migrations,
-back up data, and expose the service safely.
+Self-hosting is the primary deployment model. Use either:
 
-## Contributing
+- [`docker-compose.yml`](docker-compose.yml) to build from source; or
+- [`docker-compose.release.yml`](docker-compose.release.yml) with published GHCR images and an `ASOPULSE_VERSION` such as `v0.1.0`.
 
-Please read [CONTRIBUTING.md](CONTRIBUTING.md) before opening a pull request.
-It describes the repo workflow, quality bar, and release expectations.
+Production deployments must use HTTPS, a unique 32+ character `SESSION_SECRET`, non-default database credentials, persistent PostgreSQL and Redis volumes, and a tested backup/restore process. PostgreSQL and Redis should never be exposed publicly.
+
+Read the complete [self-hosting and upgrade guide](docs/self-hosting.md), including reverse-proxy headers, rollback constraints, backups, and migration behavior.
+
+### Environment
+
+| Variable | Required | Purpose |
+| --- | --- | --- |
+| `POSTGRES_PASSWORD` | Yes | PostgreSQL owner password. |
+| `DATABASE_URL` | Yes outside Compose | PostgreSQL connection string. |
+| `REDIS_URL` | Yes | BullMQ and provider-throttling connection. |
+| `SESSION_SECRET` | Yes | Signed session secret; production rejects weak placeholders. |
+| `WEB_ORIGIN` | Yes | Exact browser origin allowed by CORS. |
+| `NODE_ENV` | Production | Enables secure cookies and production safeguards. |
+| `API_DOCS_ENABLED` | No | Exposes Swagger UI in production only when explicitly `true`. |
+| `ASOPULSE_VERSION` | Release Compose | GHCR image tag; pin an immutable SemVer release. |
+
+Schedules are stored per project; there is no global cron environment variable.
+
+## Screenshots
+
+![ASOpulse tracking workspace with keyword table and rank history](docs/concepts/primary-workspace.png)
 
 ## Architecture
 
-See [docs/architecture.md](docs/architecture.md) for the monorepo layout, data flow, and product
-principles.
+ASOpulse is a pnpm/Turborepo TypeScript monorepo:
+
+```text
+Browser (React + Vite)
+        │ /api
+        ▼
+Fastify API ─── PostgreSQL (users, projects, observations)
+        │
+        └────── Redis + BullMQ ─── Worker ─── Apple public search provider
+```
+
+The API owns authentication and project isolation. Workers record fresh observations. History is aggregated by project-local calendar day using the latest observation in each day. See [Architecture](docs/architecture.md), [Data sources](docs/data-sources.md), and the [public-data ADR](docs/adr/0001-public-data-only-v1.md).
+
+## Security
+
+Do not open a public issue for a vulnerability. Use GitHub's **Report a vulnerability** flow described in [SECURITY.md](SECURITY.md). Public bug reports belong in Issues; setup questions and product ideas belong in Discussions.
+
+## Contributing
+
+Read [CONTRIBUTING.md](CONTRIBUTING.md) and the [Code of Conduct](CODE_OF_CONDUCT.md). Before opening a pull request, run:
+
+```bash
+pnpm check
+pnpm typecheck
+pnpm test
+pnpm build
+pnpm audit --audit-level=high
+pnpm licensecheck
+```
+
+## Roadmap
+
+See [docs/roadmap.md](docs/roadmap.md). Feature requests should explain the user problem, data source, privacy impact, and why the result remains inspectable.
+
+## Troubleshooting
+
+- **API cannot connect:** wait for PostgreSQL and Redis health checks, then inspect `docker compose logs api`.
+- **Migration fails:** restore the pre-upgrade database backup before running the older image; do not assume migrations are reversible.
+- **No rank yet:** initial and manual refreshes are queued; inspect the latest run status and worker logs.
+- **Secure cookie missing:** production login requires HTTPS and the correct `WEB_ORIGIN`.
+- **Apple search throttles:** wait for the queued retry; do not run multiple workers against separate Redis instances.
 
 ## License
 
-AGPL-3.0-only.
+ASOpulse is licensed under [GNU AGPL-3.0-only](LICENSE). Network users must be offered the complete corresponding source for the running version, including modifications.
