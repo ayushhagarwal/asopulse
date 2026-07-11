@@ -7,7 +7,7 @@ WORKDIR /app
 COPY . .
 RUN pnpm install --frozen-lockfile && pnpm --filter @asopulse/web build
 
-FROM nginxinc/nginx-unprivileged:1.29-alpine
+FROM nginxinc/nginx-unprivileged:1.31-alpine
 USER root
 RUN apk upgrade --no-cache
 COPY apps/web/nginx.conf /etc/nginx/conf.d/default.conf
