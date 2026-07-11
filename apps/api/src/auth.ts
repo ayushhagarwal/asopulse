@@ -1,13 +1,14 @@
 import type { UserRecord } from "@asopulse/core";
 import { type createDatabase, users } from "@asopulse/db";
 import argon2 from "argon2";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
+import { createRateLimitGuard } from "./rate-limit.js";
 
 type DatabaseClient = ReturnType<typeof createDatabase>["db"];
 
 export type AuthStore = {
-  createUser(input: { username: string; passwordHash: string }): Promise<UserRecord>;
+  createFirstUser(input: { username: string; passwordHash: string }): Promise<UserRecord | null>;
   findUserById(id: string): Promise<UserRecord | null>;
   findUserByUsername(username: string): Promise<UserRecord | null>;
   hasUsers(): Promise<boolean>;
@@ -32,10 +33,15 @@ async function writeSession(reply: FastifyReply, userId: string) {
 
 export function buildDatabaseAuthStore(database: DatabaseClient): AuthStore {
   return {
-    async createUser(input) {
-      const [created] = await database.insert(users).values(input).returning();
-      if (!created) throw new Error("Unable to create owner");
-      return created;
+    async createFirstUser(input) {
+      return database.transaction(async (transaction) => {
+        await transaction.execute(sql`select pg_advisory_xact_lock(1095982928)`);
+        const [existing] = await transaction.select({ id: users.id }).from(users).limit(1);
+        if (existing) return null;
+        const [created] = await transaction.insert(users).values(input).returning();
+        if (!created) throw new Error("Unable to create owner");
+        return created;
+      });
     },
     async findUserById(id) {
       const [user] = await database.select().from(users).where(eq(users.id, id)).limit(1);
@@ -92,6 +98,7 @@ export async function registerAuth(app: FastifyInstance, { store }: { store: Aut
 
   app.post<{ Body: { username?: string; password?: string } }>(
     "/api/v1/auth/setup",
+    { preHandler: createRateLimitGuard({ max: 5, windowMs: 15 * 60_000 }) },
     async (request, reply) => {
       if (await store.hasUsers())
         return reply.code(409).send({ error: "Owner already configured" });
@@ -101,10 +108,11 @@ export async function registerAuth(app: FastifyInstance, { store }: { store: Aut
           .code(400)
           .send({ error: "Use a username and a password of at least 10 characters" });
       }
-      const user = await store.createUser({
+      const user = await store.createFirstUser({
         username,
         passwordHash: await argon2.hash(password, { type: argon2.argon2id }),
       });
+      if (!user) return reply.code(409).send({ error: "Owner already configured" });
       await writeSession(reply, user.id);
       return reply
         .code(201)
@@ -114,6 +122,7 @@ export async function registerAuth(app: FastifyInstance, { store }: { store: Aut
 
   app.post<{ Body: { username?: string; password?: string } }>(
     "/api/v1/auth/login",
+    { preHandler: createRateLimitGuard({ max: 10, windowMs: 15 * 60_000 }) },
     async (request, reply) => {
       const { username = "", password = "" } = request.body ?? {};
       const user = await store.findUserByUsername(username);

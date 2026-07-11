@@ -7,4 +7,5 @@ export function createDatabase(url: string) {
   return { db: drizzle(client, { schema }), close: () => client.end() };
 }
 
+export { runMigrations } from "./migrate.js";
 export * from "./schema.js";
