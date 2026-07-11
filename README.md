@@ -7,8 +7,8 @@
 [![License: AGPL-3.0](https://img.shields.io/badge/license-AGPL--3.0--only-0b4f2d)](LICENSE)
 [![Release](https://img.shields.io/github/v/release/ayushhagarwal/asopulse?include_prereleases)](https://github.com/ayushhagarwal/asopulse/releases)
 
-| [Overview](#overview) | [Quick start](#quick-start) | [Self-host](#self-host) | [Screenshots](#screenshots) | [Architecture](#architecture) | [Security](#security) | [Contributing](#contributing) | [Roadmap](#roadmap) | [License](#license) |
-|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
+| [Overview](#overview) | [Quick start](#quick-start) | [Local setup](#local-setup) | [Self-host](#self-host) | [Screenshots](#screenshots) | [Architecture](#architecture) | [Security](#security) | [Contributing](#contributing) | [Roadmap](#roadmap) | [License](#license) |
+|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
 
 > **Project status:** Early release (`v0.x`). The backup format is versioned and migrations preserve existing observations, but review release notes before every upgrade.
 
@@ -45,6 +45,16 @@ docker compose logs --tail=100 api worker
 ```
 
 For source development with hot reload, follow [Local setup](docs/local-setup.md).
+
+## Local setup
+
+Clone the repo, make sure Docker Desktop is running, then either follow the [manual local setup guide](docs/local-setup.md) or ask Codex/Claude to run it from the repo root:
+
+```text
+Set up ASOpulse locally from this fresh clone. Use Docker Desktop for PostgreSQL and Redis, create .env from .env.example with safe local secrets, install dependencies, run migrations, start the dev server, and verify the web app and API health. Follow skills/local-setup/SKILL.md if present.
+```
+
+Agent setup instructions live in [`skills/local-setup/SKILL.md`](skills/local-setup/SKILL.md). They are intentionally plain Markdown so they can be pasted into Codex, Claude, or another coding agent.
 
 ## Self-host
 

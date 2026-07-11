@@ -2,6 +2,18 @@
 
 This guide is for day-to-day development on a laptop.
 
+## Agent-assisted setup
+
+If you have a fresh clone and Docker Desktop is installed, you can ask Codex, Claude, or another coding agent to perform the setup for you from the repository root.
+
+Use this prompt:
+
+```text
+Set up ASOpulse locally from this fresh clone. Use Docker Desktop for PostgreSQL and Redis, create .env from .env.example with safe local secrets, install dependencies, run migrations, start the dev server, and verify the web app and API health. Follow skills/local-setup/SKILL.md if present.
+```
+
+The reusable agent instructions are stored in [`../skills/local-setup/SKILL.md`](../skills/local-setup/SKILL.md). If your agent supports project skills, point it at that folder before starting.
+
 ## Requirements
 
 - Node.js 20 or newer
