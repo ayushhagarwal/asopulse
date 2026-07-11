@@ -19,7 +19,7 @@
     "postgres": "^3.4.8"
   },
   "devDependencies": {
-    "tsx": "^4.21.0",
-    "vitest": "^4.1.9"
+    "tsx": "^4.23.0",
+    "vitest": "^4.1.10"
   }
 }
