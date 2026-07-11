@@ -51,10 +51,11 @@ jobs:
           image: asopulse-${{ matrix.image }}:scan
           fail-build: true
           severity-cutoff: high
+          only-fixed: true
           output-format: sarif
           output-file: results.sarif
       - name: Upload scan result
-        if: always() && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+        if: always() && github.event.repository.private == false && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
         uses: github/codeql-action/upload-sarif@641a925cfafe92d0fdf8b239ba4053e3f8d99d6d # v3
         with:
           sarif_file: results.sarif

@@ -18,6 +18,7 @@ concurrency:
 
 jobs:
   analyze:
+    if: github.event.repository.private == false
     name: codeql
     runs-on: ubuntu-latest
     timeout-minutes: 20
