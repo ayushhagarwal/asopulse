@@ -220,6 +220,23 @@ export function buildApp({
     return reply.code(201).send({ data: project });
   });
 
+  app.delete<{ Params: { projectId: string } }>(
+    "/api/v1/projects/:projectId",
+    async (request, reply) => {
+      const user = await requireSessionUser(request, reply, runtimeAuthStore);
+      if (!user) return;
+      try {
+        await runtimeWorkspace.getProjectSettings(user.id, request.params.projectId);
+        if (runtimeObservationQueue) {
+          await runtimeObservationQueue.removeJobScheduler(`project:${request.params.projectId}`);
+        }
+        return await runtimeWorkspace.deleteProjectForOwner(user.id, request.params.projectId);
+      } catch (error) {
+        return handleRouteError(error, reply);
+      }
+    },
+  );
+
   app.post<{ Params: { projectId: string }; Body: { storefront?: string } }>(
     "/api/v1/projects/:projectId/markets",
     async (request, reply) => {

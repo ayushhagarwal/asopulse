@@ -315,6 +315,15 @@ export function createWorkspaceService({
     return projectSummary(created);
   }
 
+  async function deleteProjectForOwner(ownerId: string, projectId: string) {
+    const [deleted] = await database
+      .delete(projects)
+      .where(and(eq(projects.id, projectId), eq(projects.ownerId, ownerId)))
+      .returning({ id: projects.id });
+    if (!deleted) throw new Error("Project not found");
+    return { deleted: true as const, id: deleted.id };
+  }
+
   async function requireOwnedProject(ownerId: string, projectId: string) {
     const [project] = await database
       .select()
@@ -1144,6 +1153,7 @@ export function createWorkspaceService({
     createSystemObservationRun,
     createJobRun,
     createProjectForOwner,
+    deleteProjectForOwner,
     discoverKeyword,
     exportProjectCsv,
     finishJobRun,

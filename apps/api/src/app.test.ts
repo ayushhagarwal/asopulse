@@ -202,6 +202,9 @@ const workspace = {
   async deleteTrackedKeywordForProject() {
     return { deleted: true, id: watchlistItem.id };
   },
+  async deleteProjectForOwner() {
+    return { deleted: true, id: projectId };
+  },
   async exportProjectCsv() {
     return "keyword,rank\n daily journal,12";
   },
@@ -362,6 +365,16 @@ describe("ASOpulse API", () => {
     });
     expect(response.statusCode).toBe(200);
     expect(response.json()).toEqual({ deleted: true, id: watchlistItem.id });
+  });
+
+  test("deletes an owned app workspace", async () => {
+    const response = await app.inject({
+      method: "DELETE",
+      url: `/api/v1/projects/${projectId}`,
+      headers: { cookie: sessionCookie },
+    });
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({ deleted: true, id: projectId });
   });
 
   test("rejects unauthenticated project access", async () => {
