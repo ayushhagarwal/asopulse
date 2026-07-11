@@ -46,6 +46,14 @@ At minimum, set:
 
 Keep the password in `DATABASE_URL` in sync with `POSTGRES_PASSWORD`.
 
+One local-only way to generate values is:
+
+```bash
+export POSTGRES_PASSWORD="$(openssl rand -hex 24)"
+export SESSION_SECRET="$(openssl rand -hex 48)"
+perl -0pi -e "s|^POSTGRES_PASSWORD=.*|POSTGRES_PASSWORD=$ENV{POSTGRES_PASSWORD}|m; s|^DATABASE_URL=.*|DATABASE_URL=postgresql://asopulse:$ENV{POSTGRES_PASSWORD}\@localhost:5432/asopulse|m; s|^SESSION_SECRET=.*|SESSION_SECRET=$ENV{SESSION_SECRET}|m" .env
+```
+
 ## 3) Create PostgreSQL and Redis
 
 The simplest path is to let Docker Compose create them for you:
