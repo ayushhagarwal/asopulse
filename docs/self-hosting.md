@@ -1,68 +1,78 @@
 # Self-hosting
 
-This guide is for running the full ASOpulse stack in Docker.
+ASOpulse is designed to run on infrastructure you control. The supported deployment is Docker Compose behind a TLS-terminating reverse proxy.
 
-## 1) Prepare secrets
+## Requirements
 
-Copy the example environment:
+- Docker Engine with Compose v2
+- A DNS name and HTTPS reverse proxy for public access
+- Persistent storage for PostgreSQL and Redis
+- Regular database and portable JSON backups
+
+## Source-build installation
 
 ```bash
+git clone https://github.com/ayushhagarwal/asopulse.git
+cd asopulse
 cp .env.example .env
 ```
 
-Then replace the placeholder values with strong secrets:
-
-- `POSTGRES_PASSWORD`
-- `SESSION_SECRET`
-
-If you change the public web address, also update `WEB_ORIGIN`.
-Keep the password in `DATABASE_URL` in sync with `POSTGRES_PASSWORD`.
-
-## 2) Create PostgreSQL and Redis
-
-The Compose file creates both services for you:
-
-```bash
-docker compose up -d postgres redis
-```
-
-That gives you:
-
-- PostgreSQL on the internal Compose network
-- Redis on the internal Compose network
-- Named volumes for persistent data
-- Local-only host bindings for `127.0.0.1:5432` and `127.0.0.1:6379`
-
-## 3) Start the full stack
+Set a unique database password, a random `SESSION_SECRET` of at least 32 characters, the exact HTTPS `WEB_ORIGIN`, and `NODE_ENV=production`. Then run:
 
 ```bash
 docker compose up -d --build
+docker compose ps
+docker compose logs --tail=100 api worker
 ```
 
-The API runs migrations on startup. The web app is exposed on port `8080`, and the API is
-reachable through the internal Compose network.
+The API applies ordered migrations at startup. The web service is available on host port 8080.
 
-## 4) Verify the install
+## Release-image installation
 
-Open:
+Copy `.env.example` and `docker-compose.release.yml`, then pin an immutable release:
 
-```text
-http://localhost:8080
+```bash
+ASOPULSE_VERSION=v0.1.0 docker compose -f docker-compose.release.yml up -d
 ```
 
-If the UI loads but data is empty, confirm the API container started cleanly and that the database
-migration completed.
+Do not deploy `latest` when reproducible upgrades and rollbacks matter. API, worker, and web images must use the same version.
 
-## Backups
+## Reverse proxy and networking
 
-Back up both:
+- Terminate TLS at the reverse proxy and forward requests to the web container only.
+- Preserve `Host`, `X-Forwarded-Proto`, and client IP headers.
+- Never publish PostgreSQL port 5432 or Redis port 6379 to the internet.
+- Set `WEB_ORIGIN` to one exact origin; do not use a wildcard.
+- Leave `API_DOCS_ENABLED=false` unless API documentation must be exposed intentionally.
 
-- the PostgreSQL named volume
-- the portable JSON export from Settings
+The API uses secure, HTTP-only, same-site cookies in production and rejects placeholder session secrets.
 
-## Operational notes
+## Backups and restore
 
-- Run the service behind HTTPS before exposing it publicly.
-- Keep `SESSION_SECRET` unique per deployment.
-- Telemetry is disabled by default.
-- Restore tests should be part of your maintenance routine before large upgrades.
+Back up both the PostgreSQL volume and the portable project export from Settings. Redis data improves queue recovery but is not a substitute for PostgreSQL backups.
+
+Before every upgrade:
+
+1. Read the release notes and migration notes.
+2. Stop writes or schedule a maintenance window.
+3. Take and verify a PostgreSQL backup.
+4. Export important projects from Settings.
+5. Record the currently deployed image tags.
+
+Backups created by ASOpulse use format version 3. Version 2 remains importable.
+
+## Upgrade and rollback
+
+```bash
+ASOPULSE_VERSION=v0.2.0 docker compose -f docker-compose.release.yml pull
+ASOPULSE_VERSION=v0.2.0 docker compose -f docker-compose.release.yml up -d
+```
+
+Verify login, diagnostics, worker health, schedules, and a manual observation. Application images can be rolled back, but database migrations are not promised to be reversible. If an older application cannot read the upgraded schema, restore the pre-upgrade database backup before starting the older images.
+
+## Operations
+
+- Monitor API and worker logs, failed observation runs, PostgreSQL storage, and Redis memory.
+- Keep the host, Docker, reverse proxy, and pinned ASOpulse version updated.
+- Test restore procedures periodically.
+- Use one shared Redis deployment for all API and worker processes so throttling and queues remain coordinated.

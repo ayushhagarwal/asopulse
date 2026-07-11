@@ -1,0 +1,21 @@
+name: Feature proposal
+description: Propose an inspectable, privacy-conscious improvement.
+title: "[Feature]: "
+labels: [enhancement, triage]
+body:
+  - type: textarea
+    id: problem
+    attributes: { label: User problem, description: What problem should ASOpulse solve? }
+    validations: { required: true }
+  - type: textarea
+    id: proposal
+    attributes: { label: Proposed behavior }
+    validations: { required: true }
+  - type: textarea
+    id: data
+    attributes: { label: Data source and privacy impact, description: Identify every new source, credential, or stored field. }
+    validations: { required: true }
+  - type: textarea
+    id: method
+    attributes: { label: Inspectability, description: How can users verify the result and method? }
+    validations: { required: true }

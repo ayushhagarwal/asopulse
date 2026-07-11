@@ -1,0 +1,39 @@
+name: Bug report
+description: Report a reproducible ASOpulse problem.
+title: "[Bug]: "
+labels: [bug, triage]
+body:
+  - type: markdown
+    attributes:
+      value: Do not report security vulnerabilities here. Use the private security link instead.
+  - type: input
+    id: version
+    attributes: { label: Version, description: Release tag or commit SHA }
+    validations: { required: true }
+  - type: dropdown
+    id: deployment
+    attributes:
+      label: Deployment
+      options: [GHCR Compose, Source-build Compose, Local development, Other]
+    validations: { required: true }
+  - type: textarea
+    id: steps
+    attributes: { label: Reproduction, description: Exact steps and sanitized sample data }
+    validations: { required: true }
+  - type: textarea
+    id: expected
+    attributes: { label: Expected behavior }
+    validations: { required: true }
+  - type: textarea
+    id: actual
+    attributes: { label: Actual behavior and relevant sanitized logs }
+    validations: { required: true }
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checks
+      options:
+        - label: I removed credentials, private identifiers, and user data.
+          required: true
+        - label: I searched existing issues and discussions.
+          required: true
