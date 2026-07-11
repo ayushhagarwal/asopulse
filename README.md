@@ -33,7 +33,7 @@ The fastest local evaluation uses Docker Compose:
 git clone https://github.com/ayushhagarwal/asopulse.git
 cd asopulse
 cp .env.example .env
-# Replace POSTGRES_PASSWORD and SESSION_SECRET in .env.
+# Fill POSTGRES_PASSWORD, DATABASE_URL, and SESSION_SECRET in .env.
 docker compose up -d --build
 ```
 
