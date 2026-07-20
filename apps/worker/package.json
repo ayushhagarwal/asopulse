@@ -15,7 +15,7 @@
     "@asopulse/core": "workspace:*",
     "@asopulse/db": "workspace:*",
     "@asopulse/providers": "workspace:*",
-    "bullmq": "^5.80.2"
+    "bullmq": "^5.80.9"
   },
   "devDependencies": {
     "tsx": "^4.21.0",
