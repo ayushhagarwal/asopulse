@@ -13,18 +13,18 @@
   },
   "dependencies": {
     "@fontsource-variable/geist": "^5.3.0",
-    "@tanstack/react-query": "^5.101.4",
-    "@tanstack/react-router": "^1.170.31",
-    "@tanstack/react-table": "^9.1.2",
-    "motion": "^13.1.1",
-    "react": "^19.2.8",
-    "react-dom": "^19.2.8"
+    "@tanstack/react-query": "^5.102.8",
+    "@tanstack/react-router": "^1.170.35",
+    "@tanstack/react-table": "^9.2.4",
+    "motion": "^13.2.0",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0"
   },
   "devDependencies": {
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.2",
-    "@types/react": "^19.2.18",
-    "@types/react-dom": "^19.2.4",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
     "@webgpu/types": "^0.1.69",
     "@vitejs/plugin-react": "^6.0.3",
     "jsdom": "^29.1.1",
