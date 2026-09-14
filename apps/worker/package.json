@@ -18,7 +18,7 @@
     "bullmq": "^6.2.0"
   },
   "devDependencies": {
-    "tsx": "^4.23.1",
-    "vitest": "^4.1.10"
+    "tsx": "^4.23.13",
+    "vitest": "^5.0.0"
   }
 }
