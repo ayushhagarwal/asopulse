@@ -17,7 +17,7 @@
     "@asopulse/db": "workspace:*",
     "@asopulse/domain": "workspace:*",
     "@asopulse/providers": "workspace:*",
-    "drizzle-orm": "^0.45.1"
+    "drizzle-orm": "^0.45.3"
   },
   "devDependencies": {
     "vitest": "^4.1.10"
