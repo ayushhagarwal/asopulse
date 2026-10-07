@@ -24,7 +24,7 @@
     "argon2": "^0.45.1",
     "bullmq": "^6.2.0",
     "drizzle-orm": "^0.45.1",
-    "fastify": "^5.12.1"
+    "fastify": "^5.12.5"
   },
   "devDependencies": {
     "tsx": "^4.23.1",
