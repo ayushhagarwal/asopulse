@@ -49,3 +49,17 @@ test("scores only observable result properties", () => {
 test("exports standards-compliant CSV", () => {
   expect(toCsv([{ keyword: "journal, diary", rank: 12 }])).toContain('"journal, diary"');
 });
+
+test("neutralizes spreadsheet formulas in CSV cells", () => {
+  const csv = toCsv([
+    { keyword: "=cmd()", movement: -4 },
+    { keyword: " +SUM(A1)", movement: 1 },
+    { keyword: "@mention", movement: 0 },
+    { keyword: "=1,2", movement: 3 },
+  ]);
+  expect(csv).toContain("'=cmd()");
+  expect(csv).toContain("'-4");
+  expect(csv).toContain("' +SUM(A1)");
+  expect(csv).toContain("'@mention");
+  expect(csv).toContain(`"'=1,2"`);
+});

@@ -1,5 +1,6 @@
+import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import type { UserRecord } from "@asopulse/core";
-import { type createDatabase, users } from "@asopulse/db";
+import { type createDatabase, sessions, users } from "@asopulse/db";
 import argon2 from "argon2";
 import { eq, sql } from "drizzle-orm";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
@@ -12,26 +13,64 @@ export type AuthStore = {
   findUserById(id: string): Promise<UserRecord | null>;
   findUserByUsername(username: string): Promise<UserRecord | null>;
   hasUsers(): Promise<boolean>;
+  createSession(userId: string): Promise<string>;
+  findSessionUser(sessionId: string): Promise<UserRecord | null>;
+  deleteSession(sessionId: string): Promise<void>;
 };
 
 const COOKIE_NAME = "asopulse_session";
+const SESSION_TTL_SECONDS = 7 * 24 * 60 * 60;
 
-function sessionCookieOptions() {
+function sessionCookieBase() {
   return {
     httpOnly: true,
     sameSite: "strict" as const,
     secure: process.env.NODE_ENV === "production",
     path: "/",
-    maxAge: 7 * 24 * 60 * 60,
     signed: true,
   };
 }
 
-async function writeSession(reply: FastifyReply, userId: string) {
-  reply.setCookie(COOKIE_NAME, userId, sessionCookieOptions());
+function hashSessionId(sessionId: string) {
+  return createHash("sha256").update(sessionId).digest("hex");
+}
+
+function setupTokensMatch(provided: string, expected: string) {
+  const providedDigest = createHash("sha256").update(provided).digest();
+  const expectedDigest = createHash("sha256").update(expected).digest();
+  return timingSafeEqual(providedDigest, expectedDigest);
+}
+
+function configuredSetupToken() {
+  const token = process.env.SETUP_TOKEN?.trim() ?? "";
+  return token.length > 0 ? token : null;
+}
+
+function providedSetupToken(request: FastifyRequest<{ Body: { setupToken?: string } }>) {
+  const header = request.headers["x-setup-token"];
+  if (typeof header === "string" && header.length > 0) return header;
+  const bodyToken = request.body?.setupToken;
+  return typeof bodyToken === "string" ? bodyToken : "";
+}
+
+async function writeSession(reply: FastifyReply, store: AuthStore, userId: string) {
+  const sessionId = await store.createSession(userId);
+  reply.setCookie(COOKIE_NAME, sessionId, {
+    ...sessionCookieBase(),
+    maxAge: SESSION_TTL_SECONDS,
+  });
+}
+
+function clearSessionCookie(reply: FastifyReply) {
+  reply.clearCookie(COOKIE_NAME, sessionCookieBase());
 }
 
 export function buildDatabaseAuthStore(database: DatabaseClient): AuthStore {
+  async function findUserById(id: string) {
+    const [user] = await database.select().from(users).where(eq(users.id, id)).limit(1);
+    return user ?? null;
+  }
+
   return {
     async createFirstUser(input) {
       return database.transaction(async (transaction) => {
@@ -43,10 +82,7 @@ export function buildDatabaseAuthStore(database: DatabaseClient): AuthStore {
         return created;
       });
     },
-    async findUserById(id) {
-      const [user] = await database.select().from(users).where(eq(users.id, id)).limit(1);
-      return user ?? null;
-    },
+    findUserById,
     async findUserByUsername(username) {
       const [user] = await database
         .select()
@@ -59,6 +95,32 @@ export function buildDatabaseAuthStore(database: DatabaseClient): AuthStore {
       const [user] = await database.select({ id: users.id }).from(users).limit(1);
       return Boolean(user);
     },
+    async createSession(userId) {
+      const sessionId = randomBytes(32).toString("base64url");
+      await database.insert(sessions).values({
+        id: hashSessionId(sessionId),
+        userId,
+        expiresAt: new Date(Date.now() + SESSION_TTL_SECONDS * 1000),
+      });
+      return sessionId;
+    },
+    async findSessionUser(sessionId) {
+      const tokenHash = hashSessionId(sessionId);
+      const [session] = await database
+        .select()
+        .from(sessions)
+        .where(eq(sessions.id, tokenHash))
+        .limit(1);
+      if (!session) return null;
+      if (session.expiresAt.getTime() <= Date.now()) {
+        await database.delete(sessions).where(eq(sessions.id, tokenHash));
+        return null;
+      }
+      return findUserById(session.userId);
+    },
+    async deleteSession(sessionId) {
+      await database.delete(sessions).where(eq(sessions.id, hashSessionId(sessionId)));
+    },
   };
 }
 
@@ -70,7 +132,7 @@ export async function readSessionUser(
   if (!cookie) return null;
   const unsigned = request.unsignCookie(cookie);
   if (!unsigned.valid || !unsigned.value) return null;
-  return store.findUserById(unsigned.value);
+  return store.findSessionUser(unsigned.value);
 }
 
 export async function requireSessionUser(
@@ -96,12 +158,20 @@ export async function registerAuth(app: FastifyInstance, { store }: { store: Aut
     };
   });
 
-  app.post<{ Body: { username?: string; password?: string } }>(
+  app.post<{ Body: { username?: string; password?: string; setupToken?: string } }>(
     "/api/v1/auth/setup",
     { preHandler: createRateLimitGuard({ max: 5, windowMs: 15 * 60_000 }) },
     async (request, reply) => {
-      if (await store.hasUsers())
+      if (await store.hasUsers()) {
         return reply.code(409).send({ error: "Owner already configured" });
+      }
+      const expectedToken = configuredSetupToken();
+      if (!expectedToken) {
+        return reply.code(503).send({ error: "SETUP_TOKEN is not configured" });
+      }
+      if (!setupTokensMatch(providedSetupToken(request), expectedToken)) {
+        return reply.code(401).send({ error: "Invalid setup token" });
+      }
       const { username = "", password = "" } = request.body ?? {};
       if (username.length < 2 || password.length < 10) {
         return reply
@@ -113,7 +183,7 @@ export async function registerAuth(app: FastifyInstance, { store }: { store: Aut
         passwordHash: await argon2.hash(password, { type: argon2.argon2id }),
       });
       if (!user) return reply.code(409).send({ error: "Owner already configured" });
-      await writeSession(reply, user.id);
+      await writeSession(reply, store, user.id);
       return reply
         .code(201)
         .send({ configured: true, user: { id: user.id, username: user.username } });
@@ -129,13 +199,18 @@ export async function registerAuth(app: FastifyInstance, { store }: { store: Aut
       if (!user || !(await argon2.verify(user.passwordHash, password))) {
         return reply.code(401).send({ error: "Invalid credentials" });
       }
-      await writeSession(reply, user.id);
+      await writeSession(reply, store, user.id);
       return { user: { id: user.id, username: user.username } };
     },
   );
 
-  app.post("/api/v1/auth/logout", async (_request, reply) => {
-    reply.clearCookie(COOKIE_NAME, { path: "/" });
+  app.post("/api/v1/auth/logout", async (request, reply) => {
+    const cookie = request.cookies[COOKIE_NAME];
+    if (cookie) {
+      const unsigned = request.unsignCookie(cookie);
+      if (unsigned.valid && unsigned.value) await store.deleteSession(unsigned.value);
+    }
+    clearSessionCookie(reply);
     return { loggedOut: true };
   });
 }

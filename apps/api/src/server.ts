@@ -1,11 +1,12 @@
-import { buildApp } from "./app.js";
+import { assertExposedServerSessionSecret, buildApp } from "./app.js";
 
-const app = buildApp();
 const port = Number(process.env.PORT ?? 4100);
 
 try {
+  assertExposedServerSessionSecret();
+  const app = buildApp();
   await app.listen({ port, host: "0.0.0.0" });
 } catch (error) {
-  app.log.error(error);
+  console.error(error instanceof Error ? error.message : "API failed to start");
   process.exitCode = 1;
 }

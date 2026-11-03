@@ -39,19 +39,23 @@ At minimum, set:
 
 - `POSTGRES_PASSWORD`
 - `DATABASE_URL`
+- `REDIS_PASSWORD`
 - `REDIS_URL`
 - `SESSION_SECRET`
+- `SETUP_TOKEN`
 - `WEB_ORIGIN` if you are not using the default Vite URL
 - `NODE_ENV=development`
 
-Keep the password in `DATABASE_URL` in sync with `POSTGRES_PASSWORD`.
+Keep the password in `DATABASE_URL` in sync with `POSTGRES_PASSWORD`, and keep `REDIS_URL` in sync with `REDIS_PASSWORD`. `SETUP_TOKEN` is required once, on the first owner screen. The API also refuses to start when `SESSION_SECRET` is missing or still set to a built-in development placeholder.
 
 One local-only way to generate values is:
 
 ```bash
 export POSTGRES_PASSWORD="$(openssl rand -hex 24)"
+export REDIS_PASSWORD="$(openssl rand -hex 24)"
 export SESSION_SECRET="$(openssl rand -hex 48)"
-perl -0pi -e "s|^POSTGRES_PASSWORD=.*|POSTGRES_PASSWORD=$ENV{POSTGRES_PASSWORD}|m; s|^DATABASE_URL=.*|DATABASE_URL=postgresql://asopulse:$ENV{POSTGRES_PASSWORD}\@localhost:5432/asopulse|m; s|^SESSION_SECRET=.*|SESSION_SECRET=$ENV{SESSION_SECRET}|m" .env
+export SETUP_TOKEN="$(openssl rand -hex 24)"
+perl -0pi -e "s|^POSTGRES_PASSWORD=.*|POSTGRES_PASSWORD=$ENV{POSTGRES_PASSWORD}|m; s|^DATABASE_URL=.*|DATABASE_URL=postgresql://asopulse:$ENV{POSTGRES_PASSWORD}\@localhost:5432/asopulse|m; s|^REDIS_PASSWORD=.*|REDIS_PASSWORD=$ENV{REDIS_PASSWORD}|m; s|^REDIS_URL=.*|REDIS_URL=redis://:$ENV{REDIS_PASSWORD}\@localhost:6379|m; s|^SESSION_SECRET=.*|SESSION_SECRET=$ENV{SESSION_SECRET}|m; s|^SETUP_TOKEN=.*|SETUP_TOKEN=$ENV{SETUP_TOKEN}|m" .env
 ```
 
 ## 3) Create PostgreSQL and Redis
@@ -66,8 +70,9 @@ That command starts the database and cache services defined in `docker-compose.y
 their named volumes on first run.
 
 The Compose file binds PostgreSQL to `127.0.0.1:5432` and Redis to `127.0.0.1:6379`, so the host
-developer processes can reach them directly. If those ports are already in use on your machine,
-either stop the existing services or point `.env` at different ports.
+developer processes can reach them directly. Redis still requires `REDIS_PASSWORD`. If those ports
+are already in use on your machine, either stop the existing services or point `.env` at different
+ports.
 
 If you already have PostgreSQL and Redis running elsewhere, point `DATABASE_URL` and `REDIS_URL`
 to those instances instead.

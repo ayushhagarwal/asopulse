@@ -7,7 +7,11 @@ import {
   type ProjectSettings,
 } from "@asopulse/core";
 import { createDatabase } from "@asopulse/db";
-import { AppleSearchProvider, type AppStoreProvider } from "@asopulse/providers";
+import {
+  AppleSearchProvider,
+  type AppStoreProvider,
+  MAX_SEARCH_TERM_LENGTH,
+} from "@asopulse/providers";
 import cookie from "@fastify/cookie";
 import cors from "@fastify/cors";
 import helmet from "@fastify/helmet";
@@ -71,6 +75,48 @@ async function syncProjectScheduler(
   );
 }
 
+const PLACEHOLDER_SESSION_SECRET = /development-only|replace-this|change-me/i;
+const TEST_SESSION_SECRET = "test-only-session-secret-not-for-exposed-servers-0123456789abcdef";
+
+export function assertExposedServerSessionSecret() {
+  const secret = process.env.SESSION_SECRET ?? "";
+  if (secret.trim().length === 0 || PLACEHOLDER_SESSION_SECRET.test(secret)) {
+    throw new Error(
+      "SESSION_SECRET must be a unique value before starting the server. The built-in development secret is not accepted.",
+    );
+  }
+}
+
+export function resolveSessionSecret() {
+  const secret = process.env.SESSION_SECRET ?? "";
+  const placeholder = PLACEHOLDER_SESSION_SECRET.test(secret);
+  if (process.env.NODE_ENV === "production" && (secret.length < 32 || placeholder)) {
+    throw new Error(
+      "SESSION_SECRET must be a unique value of at least 32 characters in production",
+    );
+  }
+  if (secret.trim().length === 0 || placeholder) {
+    if (process.env.NODE_ENV === "test" && secret.trim().length === 0) return TEST_SESSION_SECRET;
+    throw new Error(
+      "SESSION_SECRET must be a unique value. The built-in development secret is not accepted.",
+    );
+  }
+  return secret;
+}
+
+function readSearchTerm(term: string | undefined) {
+  const normalized = term?.trim() ?? "";
+  if (normalized.length < 2)
+    return { ok: false as const, error: "term must contain at least 2 characters" };
+  if (normalized.length > MAX_SEARCH_TERM_LENGTH) {
+    return {
+      ok: false as const,
+      error: `term must be at most ${MAX_SEARCH_TERM_LENGTH} characters`,
+    };
+  }
+  return { ok: true as const, term: normalized };
+}
+
 function handleRouteError(
   error: unknown,
   reply: { code: (statusCode: number) => { send: (body: { error: string }) => unknown } },
@@ -99,16 +145,14 @@ export function buildApp({
   authStore?: AuthStore;
   observationQueue?: ObservationQueue;
 } = {}) {
-  const sessionSecret = process.env.SESSION_SECRET ?? "development-only-secret-change-me";
-  if (
-    process.env.NODE_ENV === "production" &&
-    (sessionSecret.length < 32 || /development-only|replace-this|change-me/i.test(sessionSecret))
-  ) {
-    throw new Error(
-      "SESSION_SECRET must be a unique value of at least 32 characters in production",
-    );
-  }
-  const app = Fastify({ logger: process.env.NODE_ENV !== "test" });
+  const sessionSecret = resolveSessionSecret();
+  const app = Fastify({
+    logger: process.env.NODE_ENV !== "test",
+    // Trust only loopback and private proxy addresses. This Fastify release ignores
+    // numeric hop counts, and trusting every forwarded address would let a direct
+    // client choose its rate-limit bucket. nginx on the Docker network is included.
+    trustProxy: "loopback, linklocal, uniquelocal",
+  });
   void app.register(cors, {
     origin: process.env.WEB_ORIGIN ?? "http://localhost:5173",
     credentials: true,
@@ -155,11 +199,11 @@ export function buildApp({
     "/api/v1/apps/search",
     { preHandler: createRateLimitGuard({ max: 30, windowMs: 60_000 }) },
     async (request, reply) => {
-      const term = request.query.term?.trim() ?? "";
-      if (term.length < 2) {
-        return reply.code(400).send({ error: "term must contain at least 2 characters" });
-      }
-      return { data: await provider.searchApps(term, request.query.country ?? "US", 25) };
+      const user = await requireSessionUser(request, reply, runtimeAuthStore);
+      if (!user) return;
+      const term = readSearchTerm(request.query.term);
+      if (!term.ok) return reply.code(400).send({ error: term.error });
+      return { data: await provider.searchApps(term.term, request.query.country ?? "US", 25) };
     },
   );
 
@@ -167,12 +211,12 @@ export function buildApp({
     "/api/v1/keywords/discover",
     { preHandler: createRateLimitGuard({ max: 30, windowMs: 60_000 }) },
     async (request, reply) => {
-      const term = request.query.term?.trim() ?? "";
-      if (term.length < 2) {
-        return reply.code(400).send({ error: "term must contain at least 2 characters" });
-      }
+      const user = await requireSessionUser(request, reply, runtimeAuthStore);
+      if (!user) return;
+      const term = readSearchTerm(request.query.term);
+      if (!term.ok) return reply.code(400).send({ error: term.error });
       return runtimeWorkspace.discoverKeyword({
-        term,
+        term: term.term,
         ...(request.query.country ? { country: request.query.country } : {}),
         ...(request.query.appId ? { appId: request.query.appId } : {}),
       });
@@ -554,7 +598,9 @@ export function buildApp({
     },
   );
 
-  app.get("/api/v1/diagnostics", async () => {
+  app.get("/api/v1/diagnostics", async (request, reply) => {
+    const user = await requireSessionUser(request, reply, runtimeAuthStore);
+    if (!user) return;
     const health = await runtimeWorkspace.getLatestHealth();
     return {
       api: "healthy",

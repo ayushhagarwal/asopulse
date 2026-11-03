@@ -33,7 +33,7 @@ The fastest local evaluation uses Docker Compose:
 git clone https://github.com/ayushhagarwal/asopulse.git
 cd asopulse
 cp .env.example .env
-# Fill POSTGRES_PASSWORD, DATABASE_URL, and SESSION_SECRET in .env.
+# Fill POSTGRES_PASSWORD, DATABASE_URL, REDIS_PASSWORD, REDIS_URL, SESSION_SECRET, and SETUP_TOKEN in .env.
 docker compose up -d --build
 ```
 
@@ -63,7 +63,7 @@ Self-hosting is the primary deployment model. Use either:
 - [`docker-compose.yml`](docker-compose.yml) to build from source; or
 - [`docker-compose.release.yml`](docker-compose.release.yml) with published GHCR images and an `ASOPULSE_VERSION` such as `v0.1.0`.
 
-Production deployments must use HTTPS, a unique 32+ character `SESSION_SECRET`, non-default database credentials, persistent PostgreSQL and Redis volumes, and a tested backup/restore process. PostgreSQL and Redis should never be exposed publicly.
+Production deployments must use HTTPS, a unique 32+ character `SESSION_SECRET`, a `SETUP_TOKEN` for the first owner, a Redis password, non-default database credentials, persistent PostgreSQL and Redis volumes, and a tested backup/restore process. PostgreSQL and Redis should never be exposed publicly. The API refuses to start when `SESSION_SECRET` is missing or is a built-in development placeholder.
 
 Read the complete [self-hosting and upgrade guide](docs/self-hosting.md), including reverse-proxy headers, rollback constraints, backups, and migration behavior.
 
@@ -73,8 +73,10 @@ Read the complete [self-hosting and upgrade guide](docs/self-hosting.md), includ
 | --- | --- | --- |
 | `POSTGRES_PASSWORD` | Yes | PostgreSQL owner password. |
 | `DATABASE_URL` | Yes outside Compose | PostgreSQL connection string. |
-| `REDIS_URL` | Yes | BullMQ and provider-throttling connection. |
-| `SESSION_SECRET` | Yes | Signed session secret; production rejects weak placeholders. |
+| `REDIS_PASSWORD` | Yes | Password required by Redis. Use a URL-safe value. |
+| `REDIS_URL` | Yes | BullMQ connection. Include the Redis password. |
+| `SESSION_SECRET` | Yes | Signed session secret. The server rejects a missing or built-in development value. |
+| `SETUP_TOKEN` | Yes until the first owner exists | Bootstrap secret for `POST /api/v1/auth/setup`. |
 | `WEB_ORIGIN` | Yes | Exact browser origin allowed by CORS. |
 | `NODE_ENV` | Production | Enables secure cookies and production safeguards. |
 | `API_DOCS_ENABLED` | No | Exposes Swagger UI in production only when explicitly `true`. |

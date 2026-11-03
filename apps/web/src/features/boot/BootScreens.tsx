@@ -52,11 +52,12 @@ export function OwnerSetupPage() {
   const queryClient = useQueryClient();
   const [username, setUsername] = useState("owner");
   const [password, setPassword] = useState("");
+  const [setupToken, setSetupToken] = useState("");
   const setup = useMutation({
     mutationFn: () =>
       apiRequest<{ configured: boolean }>("/auth/setup", {
         method: "POST",
-        body: JSON.stringify({ username, password }),
+        body: JSON.stringify({ username, password, setupToken }),
       }),
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ["session"] });
@@ -77,8 +78,21 @@ export function OwnerSetupPage() {
         <Logo />
         <div className="boot-copy">
           <h1>Create the owner workspace.</h1>
-          <p>Single-owner mode keeps V1 simple. Your credentials stay on your infrastructure.</p>
+          <p>
+            Single-owner mode keeps V1 simple. Enter the server setup token, then choose credentials
+            that stay on your infrastructure.
+          </p>
         </div>
+        <label className="boot-field">
+          <span>Setup token</span>
+          <input
+            type="password"
+            value={setupToken}
+            autoComplete="off"
+            onChange={(event) => setSetupToken(event.target.value)}
+            placeholder="SETUP_TOKEN from the server environment"
+          />
+        </label>
         <label className="boot-field">
           <span>Username</span>
           <input value={username} onChange={(event) => setUsername(event.target.value)} />
@@ -94,7 +108,8 @@ export function OwnerSetupPage() {
         </label>
         {setup.isError ? (
           <p className="inline-error">
-            The owner account could not be created. Check the API logs and try again.
+            The owner account could not be created. Check the setup token, password length, and API
+            logs.
           </p>
         ) : null}
         <button className="primary-button boot-button" type="submit" disabled={setup.isPending}>

@@ -16,6 +16,21 @@ export const users = pgTable("users", {
   passwordHash: text("password_hash").notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
+export const sessions = pgTable(
+  "sessions",
+  {
+    id: text("id").primaryKey(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index("sessions_user_id").on(table.userId),
+    index("sessions_expires_at").on(table.expiresAt),
+  ],
+);
 export const projects = pgTable(
   "projects",
   {
