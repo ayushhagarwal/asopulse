@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { AppleSearchProvider } from "./apple-search.js";
+import { AppleSearchProvider, MAX_SEARCH_TERM_LENGTH } from "./apple-search.js";
 
 describe("AppleSearchProvider", () => {
   test("normalizes Apple payloads and reuses the cache", async () => {
@@ -48,5 +48,47 @@ describe("AppleSearchProvider", () => {
     await provider.searchKeyword("journal", "US");
     await provider.searchKeyword("journal", "US", { maxAgeMs: 0 });
     expect(requests).toBe(2);
+  });
+
+  test("rejects oversized search terms before calling Apple", async () => {
+    const provider = new AppleSearchProvider(
+      async () => {
+        throw new Error("should not fetch");
+      },
+      0,
+      0,
+    );
+    await expect(provider.searchApps("a".repeat(MAX_SEARCH_TERM_LENGTH + 1), "US")).rejects.toThrow(
+      /too long/,
+    );
+  });
+
+  test("evicts expired entries and caps the in-memory cache", async () => {
+    let now = 1_000_000;
+    const realNow = Date.now;
+    Date.now = () => now;
+    let requests = 0;
+    const provider = new AppleSearchProvider(
+      async () => {
+        requests += 1;
+        return Response.json({ resultCount: 0, results: [] });
+      },
+      1_000,
+      0,
+      1_000,
+      2,
+    );
+    try {
+      await provider.searchApps("one", "US");
+      await provider.searchApps("two", "US");
+      await provider.searchApps("three", "US");
+      await provider.searchApps("one", "US");
+      expect(requests).toBe(4);
+      now += 1_001;
+      await provider.searchApps("three", "US");
+      expect(requests).toBe(5);
+    } finally {
+      Date.now = realNow;
+    }
   });
 });

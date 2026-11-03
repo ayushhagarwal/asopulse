@@ -14,4 +14,4 @@ The maintainer will acknowledge a report within seven days, investigate it priva
 
 ## Deployment responsibilities
 
-Production operators must use HTTPS, a unique session secret of at least 32 characters, non-default database credentials, a strict `WEB_ORIGIN`, private PostgreSQL and Redis networking, current container images, and tested backups. Swagger UI is disabled in production unless explicitly enabled.
+Production operators must use HTTPS, a unique session secret of at least 32 characters, a setup token for the first owner, a Redis password, non-default database credentials, a strict `WEB_ORIGIN`, private PostgreSQL and Redis networking, current container images, and tested backups. Swagger UI is disabled in production unless explicitly enabled.

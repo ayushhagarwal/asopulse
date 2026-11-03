@@ -17,8 +17,9 @@ Use this skill when a user asks an agent to set up ASOpulse locally from a fresh
    - If Docker is unavailable, tell the user to start Docker Desktop and retry.
 3. Prepare `.env`.
    - Copy `.env.example` to `.env` if `.env` does not exist.
-   - Generate a local-only `POSTGRES_PASSWORD` and a 32+ character `SESSION_SECRET`.
-   - Keep `DATABASE_URL` in sync with the generated PostgreSQL password.
+   - Generate a local-only `POSTGRES_PASSWORD`, `REDIS_PASSWORD`, `SETUP_TOKEN`, and a 32+ character `SESSION_SECRET`.
+   - Keep `DATABASE_URL` in sync with the generated PostgreSQL password and `REDIS_URL` in sync with `REDIS_PASSWORD`.
+   - Do not leave `SESSION_SECRET` empty or set to a built-in development placeholder. The API process rejects those values.
    - Use development defaults for `WEB_ORIGIN` and `NODE_ENV`.
    - Never print secrets back to the user.
 4. Install dependencies.

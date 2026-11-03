@@ -2,8 +2,14 @@ import type { ProjectBackup, WatchlistItem } from "@asopulse/core";
 import type { KeywordScore } from "@asopulse/domain";
 import type { AppStoreProvider } from "@asopulse/providers";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
-import { buildApp } from "./app.js";
+import { assertExposedServerSessionSecret, buildApp } from "./app.js";
 import type { AuthStore } from "./auth.js";
+
+const previousSessionSecret = process.env.SESSION_SECRET;
+const previousSetupToken = process.env.SETUP_TOKEN;
+process.env.SESSION_SECRET ??= "test-session-secret-0123456789abcdef";
+const setupToken = "test-setup-token";
+process.env.SETUP_TOKEN = setupToken;
 
 const provider: AppStoreProvider = {
   async searchApps() {
@@ -109,6 +115,7 @@ const users = new Map<
   string,
   { id: string; username: string; passwordHash: string; createdAt: string }
 >();
+const sessions = new Map<string, { userId: string; expiresAt: number }>();
 
 const authStore: AuthStore = {
   async createFirstUser(input) {
@@ -130,6 +137,19 @@ const authStore: AuthStore = {
   },
   async hasUsers() {
     return users.size > 0;
+  },
+  async createSession(userId) {
+    const sessionId = `session-${sessions.size + 1}-${userId}`;
+    sessions.set(sessionId, { userId, expiresAt: Date.now() + 7 * 24 * 60 * 60 * 1000 });
+    return sessionId;
+  },
+  async findSessionUser(sessionId) {
+    const session = sessions.get(sessionId);
+    if (!session || session.expiresAt <= Date.now()) return null;
+    return users.get(session.userId) ?? null;
+  },
+  async deleteSession(sessionId) {
+    sessions.delete(sessionId);
   },
 };
 
@@ -309,17 +329,51 @@ const app = buildApp({
 
 let sessionCookie = "";
 
+function headerValue(value: string | string[] | undefined) {
+  return Array.isArray(value) ? (value[0] ?? "") : (value ?? "");
+}
+
 beforeAll(async () => {
-  const response = await app.inject({
+  delete process.env.SETUP_TOKEN;
+  const unconfigured = await app.inject({
+    method: "POST",
+    url: "/api/v1/auth/setup",
+    payload: { username: "owner", password: "long-password", setupToken },
+  });
+  expect(unconfigured.statusCode).toBe(503);
+  process.env.SETUP_TOKEN = setupToken;
+
+  const missing = await app.inject({
     method: "POST",
     url: "/api/v1/auth/setup",
     payload: { username: "owner", password: "long-password" },
   });
-  const cookie = response.headers["set-cookie"];
-  sessionCookie = Array.isArray(cookie) ? (cookie[0] ?? "") : (cookie ?? "");
+  expect(missing.statusCode).toBe(401);
+
+  const wrong = await app.inject({
+    method: "POST",
+    url: "/api/v1/auth/setup",
+    payload: { username: "owner", password: "long-password", setupToken: "wrong-setup-token" },
+  });
+  expect(wrong.statusCode).toBe(401);
+  expect(await authStore.hasUsers()).toBe(false);
+
+  const response = await app.inject({
+    method: "POST",
+    url: "/api/v1/auth/setup",
+    payload: { username: "owner", password: "long-password", setupToken },
+  });
+  expect(response.statusCode).toBe(201);
+  sessionCookie = headerValue(response.headers["set-cookie"]);
 });
 
-afterAll(() => app.close());
+afterAll(async () => {
+  await app.close();
+  if (previousSetupToken === undefined) delete process.env.SETUP_TOKEN;
+  else process.env.SETUP_TOKEN = previousSetupToken;
+  if (previousSessionSecret === undefined) delete process.env.SESSION_SECRET;
+  else process.env.SESSION_SECRET = previousSessionSecret;
+});
 
 describe("ASOpulse API", () => {
   test("reports health without telemetry", async () => {
@@ -342,9 +396,70 @@ describe("ASOpulse API", () => {
     });
   });
 
-  test("normalizes app search", async () => {
+  test("rejects app search without a session", async () => {
     const response = await app.inject({ method: "GET", url: "/api/v1/apps/search?term=clarity" });
+    expect(response.statusCode).toBe(401);
+  });
+
+  test("normalizes app search for an authenticated session", async () => {
+    const response = await app.inject({
+      method: "GET",
+      url: "/api/v1/apps/search?term=clarity",
+      headers: { cookie: sessionCookie },
+    });
+    expect(response.statusCode).toBe(200);
     expect(response.json().data[0].appId).toBe("1");
+  });
+
+  test("rejects oversized authenticated searches", async () => {
+    const response = await app.inject({
+      method: "GET",
+      url: `/api/v1/apps/search?term=${"a".repeat(101)}`,
+      headers: { cookie: sessionCookie },
+    });
+    expect(response.statusCode).toBe(400);
+  });
+
+  test("rejects keyword discovery without a session", async () => {
+    const response = await app.inject({
+      method: "GET",
+      url: "/api/v1/keywords/discover?term=journal",
+    });
+    expect(response.statusCode).toBe(401);
+  });
+
+  test("discovers keywords for an authenticated session", async () => {
+    const response = await app.inject({
+      method: "GET",
+      url: "/api/v1/keywords/discover?term=journal",
+      headers: { cookie: sessionCookie },
+    });
+    expect(response.statusCode).toBe(200);
+    expect(response.json().data.keyword).toBe("daily journal");
+  });
+
+  test("rejects diagnostics without a session", async () => {
+    const response = await app.inject({ method: "GET", url: "/api/v1/diagnostics" });
+    expect(response.statusCode).toBe(401);
+  });
+
+  test("returns diagnostics for an authenticated session", async () => {
+    const response = await app.inject({
+      method: "GET",
+      url: "/api/v1/diagnostics",
+      headers: { cookie: sessionCookie },
+    });
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({ api: "healthy", database: "healthy" });
+  });
+
+  test("keeps setup disabled after the owner exists", async () => {
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/v1/auth/setup",
+      payload: { username: "other", password: "long-password", setupToken },
+    });
+    expect(response.statusCode).toBe(409);
   });
 
   test("exports the watchlist for the current project", async () => {
@@ -445,6 +560,115 @@ describe("ASOpulse API", () => {
     expect(response.json()).toMatchObject({ created: true, project: { storefront: "IN" } });
   });
 
+  test("logout clears the cookie with the same flags and revokes the session", async () => {
+    const previousNodeEnv = process.env.NODE_ENV;
+    process.env.NODE_ENV = "production";
+    try {
+      const login = await app.inject({
+        method: "POST",
+        url: "/api/v1/auth/login",
+        payload: { username: "owner", password: "long-password" },
+      });
+      expect(login.statusCode).toBe(200);
+      const setCookie = headerValue(login.headers["set-cookie"]);
+      expect(setCookie).toMatch(/HttpOnly/i);
+      expect(setCookie).toMatch(/SameSite=Strict/i);
+      expect(setCookie).toMatch(/Path=\//i);
+      expect(setCookie).toMatch(/Secure/i);
+      const logout = await app.inject({
+        method: "POST",
+        url: "/api/v1/auth/logout",
+        headers: { cookie: setCookie },
+      });
+      expect(logout.statusCode).toBe(200);
+      const cleared = headerValue(logout.headers["set-cookie"]);
+      expect(cleared).toMatch(/HttpOnly/i);
+      expect(cleared).toMatch(/SameSite=Strict/i);
+      expect(cleared).toMatch(/Path=\//i);
+      expect(cleared).toMatch(/Secure/i);
+      const again = await app.inject({
+        method: "GET",
+        url: "/api/v1/projects",
+        headers: { cookie: setCookie },
+      });
+      expect(again.statusCode).toBe(401);
+    } finally {
+      if (previousNodeEnv === undefined) delete process.env.NODE_ENV;
+      else process.env.NODE_ENV = previousNodeEnv;
+    }
+  });
+
+  test("rate limits forwarded clients separately from one another", async () => {
+    const isolated = buildApp({
+      provider,
+      ...(workspace ? { workspace } : {}),
+      ...(authStore ? { authStore } : {}),
+    });
+    try {
+      let limited = await isolated.inject({
+        method: "POST",
+        url: "/api/v1/auth/login",
+        headers: { "x-forwarded-for": "203.0.113.10" },
+        payload: { username: "missing", password: "incorrect-password" },
+      });
+      for (let attempt = 1; attempt < 11; attempt += 1) {
+        limited = await isolated.inject({
+          method: "POST",
+          url: "/api/v1/auth/login",
+          headers: { "x-forwarded-for": "203.0.113.10" },
+          payload: { username: "missing", password: "incorrect-password" },
+        });
+      }
+      const other = await isolated.inject({
+        method: "POST",
+        url: "/api/v1/auth/login",
+        headers: { "x-forwarded-for": "203.0.113.11" },
+        payload: { username: "missing", password: "incorrect-password" },
+      });
+      expect(limited.statusCode).toBe(429);
+      expect(other.statusCode).toBe(401);
+    } finally {
+      await isolated.close();
+    }
+  });
+
+  test("ignores a spoofed forwarded address from an untrusted peer", async () => {
+    const isolated = buildApp({
+      provider,
+      ...(workspace ? { workspace } : {}),
+      ...(authStore ? { authStore } : {}),
+    });
+    try {
+      let limited = await isolated.inject({
+        method: "POST",
+        url: "/api/v1/auth/login",
+        remoteAddress: "198.51.100.20",
+        headers: { "x-forwarded-for": "203.0.113.10" },
+        payload: { username: "missing", password: "incorrect-password" },
+      });
+      for (let attempt = 1; attempt < 11; attempt += 1) {
+        limited = await isolated.inject({
+          method: "POST",
+          url: "/api/v1/auth/login",
+          remoteAddress: "198.51.100.20",
+          headers: { "x-forwarded-for": "203.0.113.10" },
+          payload: { username: "missing", password: "incorrect-password" },
+        });
+      }
+      const spoofed = await isolated.inject({
+        method: "POST",
+        url: "/api/v1/auth/login",
+        remoteAddress: "198.51.100.20",
+        headers: { "x-forwarded-for": "203.0.113.99" },
+        payload: { username: "missing", password: "incorrect-password" },
+      });
+      expect(limited.statusCode).toBe(429);
+      expect(spoofed.statusCode).toBe(429);
+    } finally {
+      await isolated.close();
+    }
+  });
+
   test("rate limits repeated login failures", async () => {
     let response = await app.inject({
       method: "POST",
@@ -468,6 +692,25 @@ describe("ASOpulse API", () => {
     process.env.NODE_ENV = "production";
     process.env.SESSION_SECRET = "replace-this-before-exposing-the-service";
     expect(() => buildApp({ provider, workspace, authStore })).toThrow(/SESSION_SECRET/);
+    if (previousNodeEnv === undefined) delete process.env.NODE_ENV;
+    else process.env.NODE_ENV = previousNodeEnv;
+    if (previousSecret === undefined) delete process.env.SESSION_SECRET;
+    else process.env.SESSION_SECRET = previousSecret;
+  });
+
+  test("rejects a missing or built-in session secret outside production", () => {
+    if (!workspace || !authStore) throw new Error("Test services are required");
+    const previousNodeEnv = process.env.NODE_ENV;
+    const previousSecret = process.env.SESSION_SECRET;
+    process.env.NODE_ENV = "development";
+    delete process.env.SESSION_SECRET;
+    expect(() => buildApp({ provider, workspace, authStore })).toThrow(/SESSION_SECRET/);
+    expect(() => assertExposedServerSessionSecret()).toThrow(/SESSION_SECRET/);
+    process.env.SESSION_SECRET = "development-only-secret-change-me";
+    expect(() => buildApp({ provider, workspace, authStore })).toThrow(/SESSION_SECRET/);
+    expect(() => assertExposedServerSessionSecret()).toThrow(/SESSION_SECRET/);
+    process.env.SESSION_SECRET = "unique-local-session-secret-0123456789abcdef";
+    expect(() => assertExposedServerSessionSecret()).not.toThrow();
     if (previousNodeEnv === undefined) delete process.env.NODE_ENV;
     else process.env.NODE_ENV = previousNodeEnv;
     if (previousSecret === undefined) delete process.env.SESSION_SECRET;

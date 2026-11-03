@@ -11,7 +11,16 @@ services:
   redis:
     image: redis:7-alpine
     restart: unless-stopped
-    command: redis-server --appendonly yes
+    command:
+      [
+        "redis-server",
+        "--appendonly",
+        "yes",
+        "--requirepass",
+        "${REDIS_PASSWORD:?Set REDIS_PASSWORD}",
+      ]
+    environment:
+      REDISCLI_AUTH: ${REDIS_PASSWORD:?Set REDIS_PASSWORD}
     volumes: ["redis-data:/data"]
     healthcheck: { test: ["CMD", "redis-cli", "ping"], interval: 5s, timeout: 3s, retries: 10 }
   api:
@@ -19,8 +28,9 @@ services:
     restart: unless-stopped
     environment:
       DATABASE_URL: postgresql://asopulse:${POSTGRES_PASSWORD}@postgres:5432/asopulse
-      REDIS_URL: redis://redis:6379
+      REDIS_URL: redis://:${REDIS_PASSWORD:?Set REDIS_PASSWORD}@redis:6379
       SESSION_SECRET: ${SESSION_SECRET:?Set SESSION_SECRET}
+      SETUP_TOKEN: ${SETUP_TOKEN:?Set SETUP_TOKEN}
       WEB_ORIGIN: ${WEB_ORIGIN:?Set WEB_ORIGIN}
       NODE_ENV: production
       API_DOCS_ENABLED: ${API_DOCS_ENABLED:-false}
@@ -38,7 +48,7 @@ services:
     restart: unless-stopped
     environment:
       DATABASE_URL: postgresql://asopulse:${POSTGRES_PASSWORD}@postgres:5432/asopulse
-      REDIS_URL: redis://redis:6379
+      REDIS_URL: redis://:${REDIS_PASSWORD:?Set REDIS_PASSWORD}@redis:6379
     depends_on:
       api: { condition: service_healthy }
   web:

@@ -1,5 +1,8 @@
+const FORMULA_PREFIX = /^[=+\-@]/;
+
 const escapeCell = (value: unknown) => {
-  const text = String(value ?? "");
+  let text = String(value ?? "");
+  if (FORMULA_PREFIX.test(text.trim())) text = `'${text}`;
   return /[",\n]/.test(text) ? `"${text.replaceAll('"', '""')}"` : text;
 };
 
